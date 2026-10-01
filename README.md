@@ -176,6 +176,11 @@ valves and septum completely.
 Lower `particles` to debug on a weak GPU. Additive blending means brightness is coupled to
 particle count, which is why exposure is divided by the budget.
 
+## Project document
+
+[`docs/PROJECT.md`](docs/PROJECT.md) covers current status, the full remaining-work plan, risk
+register, and timeline.
+
 ## Status
 
 What is verified:
