@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>WonderSnap — hands-only 3D learning</title>
+<link rel="icon" href="favicon.svg" type="image/svg+xml" />
+<link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+<canvas id="gl"></canvas>
+<video id="cam" playsinline muted autoplay></video>
+
+<div id="hud">
+  <header class="hud-top">
+    <div class="brand">
+      <span class="mark">WonderSnap</span>
+      <span class="tag" id="fps">—</span>
+    </div>
+    <nav class="models" id="modelTabs"></nav>
+    <div class="top-right">
+      <button class="chip" id="btnNarration" title="Toggle spoken narration">Narration off</button>
+      <button class="chip" id="btnQuiz">Quiz</button>
+      <button class="chip" id="btnCutaway">Cutaway</button>
+      <button class="chip" id="btnStart">Start camera</button>
+    </div>
+  </header>
+
+  <aside class="legend" id="legend">
+    <h2>Gestures</h2>
+    <ul>
+      <li><b>Snap</b><span>materialise particles</span></li>
+      <li><b>Fist</b><span>assemble the model</span></li>
+      <li><b>Open hand</b><span>next model / explode</span></li>
+      <li><b>Wrist twist</b><span>rotate &amp; tilt</span></li>
+      <li><b>Two hands apart</b><span>zoom</span></li>
+      <li><b>Point</b><span>inspect a part</span></li>
+      <li><b>Pinch</b><span>pull a part out</span></li>
+    </ul>
+  </aside>
+
+  <section class="panel" id="panel" hidden>
+    <button class="close" id="panelClose" aria-label="Close">&times;</button>
+    <h2 id="panelTitle">—</h2>
+    <p class="cat" id="panelCategory">—</p>
+    <p class="body" id="panelBody">—</p>
+  </section>
+
+  <section class="quiz" id="quizPanel" hidden>
+    <div class="quiz-head">
+      <h2 id="quizPrompt">—</h2>
+      <span id="quizScore">0 / 0</span>
+    </div>
+    <div class="options" id="quizOptions"></div>
+    <div class="quiz-foot">
+      <span id="quizFeedback">—</span>
+      <button class="chip" id="quizNext">Next question</button>
+    </div>
+  </section>
+
+  <div class="hint" id="hint">Point at a part to read what it does.</div>
+  <div class="status" id="status">Click “Start camera” to begin hand tracking.</div>
+  <canvas class="overlay" id="overlay"></canvas>
+</div>
+
+<div class="gate" id="gate">
+  <div class="gate-inner">
+    <h1>WonderSnap</h1>
+    <p>A 3D learning experience you control with nothing but your bare hands.
+       No mouse, no controller, no keyboard. Just a webcam and your hands.</p>
+    <p class="fine">Everything is rendered locally in your browser. The camera feed never leaves the machine.</p>
+    <button id="gateStart">Enable camera and start</button>
+    <p class="fine" id="gateError" hidden></p>
+  </div>
+</div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

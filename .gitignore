@@ -1,0 +1,3 @@
+# MediaPipe Tasks Vision runtime + hand landmark model.
+# ~42 MB of third-party binaries, fetched by ./setup.sh
+vendor/
