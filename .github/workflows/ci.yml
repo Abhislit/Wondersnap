@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  unit:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Run unit suites
+        run: npm test
+
+  browser:
+    name: Browser smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Cache the MediaPipe runtime
+        id: vendor
+        run: ./setup.sh
+      - name: Install puppeteer
+        run: npm install --no-save puppeteer-core
+      - name: Boot the app and drive it
+        run: node tests/browser.test.mjs
+        env:
+          PARTICLES: '20000'
+
+  lint:
+    name: Syntax and hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Every module parses
+        run: |
+          find js tools tests -name '*.js' -o -name '*.mjs' | while read -r f; do
+            node --check "$f" || exit 1
+          done
+      - name: No stray debug logging in shipped code
+        run: |
+          if grep -rn 'console\.log' js/ ; then
+            echo '::error::console.log found in js/'
+            exit 1
+          fi
+      - name: setup.sh is executable and valid
+        run: |
+          test -x setup.sh
+          bash -n setup.sh

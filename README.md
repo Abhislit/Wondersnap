@@ -95,11 +95,19 @@ extension    = dist(wrist, tip) / dist(wrist, mcp)   > 1.30
 Poses are mutually exclusive and checked in priority order: pinch, fist, point, open palm. A
 relaxed half-curled hand deliberately matches none of them rather than guessing.
 
-A finger snap is detected from the *derivative* of the thumb-index distance over the last 7
-tracking samples — it must close tightly (`< 0.34` of palm width) and quickly
-(`> 0.0018` per ms). A hand that is merely held open never fires it.
+Two mechanisms keep poses from firing repeatedly or flickering at the boundaries:
 
-**These thresholds are unverified against real hands.** See Status below.
+- **Hysteresis** — a pose must hold for 3 frames to activate and be absent for 4 to clear.
+- **Cooldown** — fist and open palm cannot re-fire within 700 ms and 900 ms respectively.
+
+A finger snap is detected from the *derivative* of the thumb-index distance over the last 7
+tracking samples — it must close tightly (`< 0.34` of palm width) and quickly (`> 0.0018` per ms).
+A hand that is merely held open never fires it.
+
+Twist and zoom are **continuous axes** rather than poses. Twist integrates palm roll past a
+deadzone, so a small wobble does not rotate the model; two hands convert their span change into a
+zoom factor. Both live in `GestureEngine.cameraDelta()`, alongside a positional orbit fallback,
+so all six controls share one place and one set of tuning constants.
 
 ## Layout
 
@@ -170,11 +178,33 @@ valves and septum completely.
 
 | Parameter | Default | Purpose |
 |---|---|---|
-| `?particles=N` | `240000` | Particle budget, clamped to 4000–240000 |
+| `?particles=N` | `240000` | Particle budget, clamped to 4000–240000. **Pins the budget**, disabling auto-quality |
 | `?exposure=N` | `170` | Brightness, scaled down as `N / budget` |
 
-Lower `particles` to debug on a weak GPU. Additive blending means brightness is coupled to
+By default the budget adapts to hold 60fps (`js/core/quality.js`), reacting only after several
+seconds of sustained slowness so it never thrashes. Additive blending couples brightness to
 particle count, which is why exposure is divided by the budget.
+
+## Tests
+
+```bash
+npm test              # 105 assertions across 6 suites, no browser, ~1s
+npm run test:browser  # 18 checks in headless Chrome — run ./setup.sh first
+```
+
+The unit suites cover pose classification, hysteresis, snap detection, model baking and the
+maths. The browser suite boots the real app with a fake camera and asserts the things unit tests
+cannot: that particles reach the framebuffer, that every part is pickable when exploded, and that
+the budget can be rebuilt at runtime.
+
+## Gesture tuning
+
+`tools/tune.html` runs the live classifier against your camera, traces every raw ratio against its
+threshold, and makes each threshold a slider. Use it to retune, then copy the result as JSON.
+
+The defaults in `js/core/gestures.js` were chosen from anatomical ratios and validated against
+synthetic landmarks — **they have not been tested against a real human hand.** Treat that as the
+first thing to fix.
 
 ## Project document
 
@@ -193,10 +223,13 @@ What is verified:
 What is **not** verified:
 
 - **No real-camera testing.** All runs used Chrome's fake webcam device. The gesture thresholds
-  above are reasoned estimates and will need tuning against actual hands.
-- **Never run at 240k on a real GPU.** Verification ran at 12k–20k under SwiftShader software
-  rendering because the test machine has no GPU. Framerate at 240k is unmeasured.
+  above are reasoned estimates and will need tuning against actual hands — `tools/tune.html` is
+  the tool for that.
+- **Never run at 240k on a real GPU.** Verification ran under SwiftShader software rendering
+  because the test machine has no GPU. Framerate at full budget is unmeasured; adaptive quality
+  mitigates but does not measure it.
 - **4 of 29 models.** Heart, DNA double helix, Eiffel Tower, turbofan jet engine.
+- **Safari and Firefox untested.** Only Chrome.
 
 A known weakness: models whose parts are concentric or nested (much of biology and anatomy) are
 harder to point at than separated machinery. The exploded view is the intended way to inspect

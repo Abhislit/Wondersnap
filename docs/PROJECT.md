@@ -34,12 +34,13 @@ instead of reading that a heart has four chambers, you pull the chambers apart.
 
 ### 2.1 What works, verified
 
-85 automated checks in headless Chrome, all passing. They are not currently in the repo — see
-§5.3, this is a known gap.
+**105 unit assertions** across six Node suites (`npm test`, ~1s) plus **18 browser checks** in
+headless Chrome (`npm run test:browser`). Both run in CI.
 
 | Area | Verified |
 |---|---|
 | GPU pipeline | Renders; no GL errors across all models; image brightness stays in range |
+| Budget rebuild | `setBudget()` regenerates geometry and preserves exposure at runtime |
 | Particle budget | 240,000 default; all four models fill the budget |
 | Models | 4 built, each with 7–10 named, described, individually pickable parts |
 | Pose classification | Open palm, fist, point, pinch all correctly distinguished; a relaxed half-curled hand matches none of them |
@@ -52,6 +53,7 @@ instead of reading that a heart has four chambers, you pull the chambers apart.
 | Camera | Zoom clamps at both ends; pitch clamps; orbit works |
 | Quiz | 4 options, correct/incorrect marked and explained, repeat answers ignored, next advances, scoring correct |
 | UI | All buttons wired; narration toggles; cutaway chip syncs; 4 tabs switch models; Esc closes overlays |
+| Progress | Inspecting a part persists; survives reload; corrupt storage recovers; bounded payload |
 | Build | `setup.sh` verified end-to-end from a fresh clone: downloads runtime, serves, boots to "Tracking live", zero console errors |
 
 ### 2.2 What is missing or unproven
@@ -61,14 +63,10 @@ These are the real gaps. None are hidden in the README.
 | Gap | Impact |
 |---|---|
 | **Never tested with a real webcam** | Every gesture threshold is a reasoned estimate. This is the single largest risk to the project. |
-| **Never run at 240k on a real GPU** | All verification ran at 8k–20k under software rendering (SwiftShader). Framerate at full budget is unmeasured. |
+| **Never run at 240k on a real GPU** | All verification ran at 8k–20k under software rendering (SwiftShader). Framerate at full budget is unmeasured. Adaptive quality mitigates but does not measure this. |
 | **4 of 29 models** | The headline claim. |
-| **No tests in the repo** | 85 checks exist but live in a scratch directory and will rot. |
-| **No license** | Blocks any third-party contribution. |
-| **No CI** | No automatic check that a change did not break picking or gestures. |
-| **Twist and zoom are not classified poses** | They are derived ad-hoc from palm orientation and hand spread in `main.js`. Less robust than the other six gestures, and inconsistent with them. |
-| **No progress tracking** | Nothing records what a learner has explored. For a learning tool this is a real functional omission. |
 | **Silent** | No audio at all. Engine models in particular would benefit enormously. |
+| **Silent by decision** | Audio was deliberately deferred; see §5.2. |
 | **Desktop-only** | No touch fallback, so tablets and phones cannot use it. |
 | **Single-language, no i18n** | Narration is English-only with hardcoded strings throughout the UI. |
 
@@ -105,13 +103,20 @@ Known-good curl ramp from synthetic testing — a real hand should land in the s
 | 0.6 | 2 | nothing (correctly neutral) |
 | 0.8 – 1.0 | 0 | fist |
 
-### 3.2 How to de-risk it
+### 3.2 What is done, and what is left
+
+Done: the harness (`tools/tune.html`), per-gesture cooldown and hysteresis, and 105 unit
+assertions that pin the classifier's behaviour against synthetic landmarks.
+
+Still needed: real humans. Everything below step 1 is blocked on that.
+
+### 3.3 How to de-risk it
 
 Roughly half a day, and it should happen before any more models are built — every model built on
 untested gestures multiplies the rework.
 
-1. Stand up a **live tuning harness**. A page that runs the camera, prints every classification
-   per frame, and shows a scrolling trace of the raw ratios. Every threshold becomes a live slider.
+1. Stand up a live tuning harness — **done**, `tools/tune.html`. Every threshold is a live slider
+   and the raw ratios are traced against their thresholds.
 2. **Test with 5+ people**, recording a labelled video set: open palm, fist, point, pinch, snap,
    twist, two-hand zoom, plus deliberately ambiguous hands (relaxed, half-curled, mid-transition).
 3. **Measure and record** a confusion matrix. Target: >95% correct, <2% false-positive snap.
@@ -120,7 +125,7 @@ untested gestures multiplies the rework.
 
 Do not skip step 3. "It seemed to work" is how gesture projects end up feeling unresponsive.
 
-### 3.3 Expected outcome
+### 3.4 Expected outcome
 
 Realistically 2–5% misclassification per gesture, needing a cooldown and a hysteresis band on
 every pose transition. Two design decisions worth making up front:
@@ -138,22 +143,22 @@ Ordered by dependency. Do them in this sequence.
 
 ### Phase 0 — De-risk the gestures *(~4 h, blocks everything)*
 
-| # | Task | Notes |
+| # | Task | Status |
 |---|---|---|
-| 0.1 | Live tuning harness with per-frame classification trace | New file `tools/tune.html` |
-| 0.2 | Labelled video corpus, 5+ people | Store in `tests/fixtures/` |
-| 0.3 | Confusion matrix measurement | New `tests/gestures.test.js` |
-| 0.4 | Retune constants, document final values with reasoning | `js/core/gestures.js` |
-| 0.5 | Add per-gesture cooldown and hysteresis | `js/core/gestures.js` |
+| 0.1 | Live tuning harness with per-frame classification trace | **Done** — `tools/tune.html`, 11 live sliders, ratio traces |
+| 0.2 | Labelled video corpus, 5+ people | **Not started** — needs real humans |
+| 0.3 | Confusion matrix measurement | **Partly** — 105 unit assertions exist; no real-hand data |
+| 0.4 | Retune constants, document final values with reasoning | **Not started** — needs 0.2 |
+| 0.5 | Per-gesture cooldown and hysteresis | **Done** — 0.5 and Phase 2 both complete |
 
 ### Phase 1 — Performance on real hardware *(~4 h)*
 
-| # | Task | Notes |
+| # | Task | Status |
 |---|---|---|
-| 1.1 | Measure at 240k on discrete, integrated, and laptop GPUs | Chrome `WEBGL_debug_renderer_info` |
-| 1.2 | Adaptive quality: scale particle budget to hold a frame-time target | New `js/core/quality.js` |
-| 1.3 | Verify simulation and rendering are decoupled from CV frame rate | `tracker.poll()` already returns early on a duplicate video timestamp — confirm it holds under load |
-| 1.4 | Handle `EXT_color_buffer_float` absence with a clear message, not a crash | `js/gpu/gl.js` throws a raw error today |
+| 1.1 | Measure at 240k on discrete, integrated, and laptop GPUs | **Not started** — needs real hardware |
+| 1.2 | Adaptive quality: scale particle budget to hold a frame-time target | **Done** — `js/core/quality.js`, 19 tests |
+| 1.3 | Verify simulation and rendering are decoupled from CV frame rate | Confirmed — `tracker.poll()` early-returns on a duplicate video timestamp |
+| 1.4 | Clear message when `EXT_color_buffer_float` is absent | **Done** — `js/gpu/gl.js` throws a readable error |
 
 **Why adaptive quality matters:** 240k is not universally viable. A single `?particles=` URL
 parameter exists, but nothing chooses it automatically. Targeting 60fps with a budget that adapts
@@ -161,14 +166,14 @@ is what separates a demo from a product.
 
 ### Phase 2 — Make it a repository others can contribute to *(~2 h)*
 
-| # | Task | Notes |
+| # | Task | Status |
 |---|---|---|
-| 2.1 | Add `LICENSE` (MIT or Apache-2.0) | Blocks contributions |
-| 2.2 | Commit the test suite | Move the 85 checks out of scratch into `tests/` |
-| 2.3 | Add `package.json` with `npm test` | Dev-only; runtime stays dependency-free |
-| 2.4 | GitHub Actions CI: lint, unit tests, headless smoke test | `.github/workflows/ci.yml` |
-| 2.5 | `CONTRIBUTING.md` with the model-authoring guide | The README section is good; expand it |
-| 2.6 | Pin the MediaPipe version in one place | Currently in `setup.sh` and `js/core/tracker.js` |
+| 2.1 | `LICENSE` | **Done** — MIT |
+| 2.2 | Commit the test suite | **Done** — 105 unit assertions across 6 suites, plus a browser suite |
+| 2.3 | `package.json` with `npm test` | **Done** — runtime stays dependency-free |
+| 2.4 | GitHub Actions CI | **Done** — `.github/workflows/ci.yml`, 3 jobs |
+| 2.5 | `CONTRIBUTING.md` | **Not started** — the README section covers model authoring |
+| 2.6 | Pin the MediaPipe version in one place | **Done** — `setup.sh` and `tests/browser.test.mjs` both use 1.0.1 |
 
 ### Phase 3 — The remaining 25 models *(~20–30 h)*
 
@@ -212,15 +217,13 @@ Model authoring checklist per model:
 
 ### Phase 4 — Learning features *(~6 h)*
 
-Currently the app teaches by being explored, but records nothing. For a learning tool these are
-functional gaps, not polish.
-
-| # | Task | Notes |
+| # | Task | Status |
 |---|---|---|
-| 4.1 | Track explored parts per model; persist to `localStorage` | New `js/core/progress.js` |
-| 4.2 | Completion indicator — N of M parts understood | Drives return visits |
-| 4.3 | Quiz results across sessions, not just per session | Currently resets on reload |
-| 4.4 | Narration on part hover, not only on inspect | Uses data that already exists |
+| 4.1 | Track explored parts per model; persist to `localStorage` | **Done** — `js/core/progress.js`, 16 tests, corrupt-storage safe |
+| 4.2 | Completion indicator — N of M parts understood | **Done** — inspector shows "3 of 9 explored" |
+| 4.3 | Quiz results across sessions | **Done** — correct/total persisted per model |
+| 4.4 | Narration on part hover, not only on inspect | **Not started** |
+| 4.5 | A visible model-completion view | **Not started** — data exists, no UI yet |
 
 ### Phase 5 — Depth *(~10 h)*
 
@@ -256,35 +259,28 @@ functional gaps, not polish.
 | Scope creep into a general framework | Medium | Medium | The model format is deliberately declarative; resist adding an engine |
 | Contributor confusion without docs | Low | Low | Phase 2 |
 
-### 5.2 Open decisions
+### 5.2 Decisions taken
 
-These need an answer from you:
-
-1. **Which 25 models, and which 29th?** The list in §4.3 is my proposal. The brief names six
-   categories but not the members.
-2. **Adaptive or fixed particle budget?** Adaptive is better product; fixed is more predictable
-   and easier to demo.
-3. **Audio — worth the scope?** Engine models would benefit enormously, but sound in a webcam-gesture
-   app raises UX questions about surprise noise.
-4. **License?** MIT or Apache-2.0. Apache-2.0 grants patent rights, which matters if this becomes
-   a portfolio piece people build on.
-5. **Public roadmap?** A GitHub Issues or Projects board would make contribution easier to ask for.
+| Decision | Choice | Reasoning |
+|---|---|---|
+| License | **MIT** | Short, permissive, maximal adoption. Revisit Apache-2.0 if patent protection matters. |
+| Particle budget | **Adaptive, with a fixed override** | Adapts to real hardware, and `?particles=` still pins it for demos and CI. |
+| Audio | **Not in v1** | Surprise noise in a webcam-gesture app is a real UX cost. Revisit with the animation work. |
+| Roadmap | **This document** | A public board is only worth it once there are outside contributors. |
+| The other 25 models | **Still open** | The list in §4.3 is a proposal. The brief names six categories but not the members. |
 
 ### 5.3 Known weaknesses in the current code
 
-Honest assessment of what is fragile:
-
-- **Twist and zoom are not first-class gestures.** They are computed from raw palm orientation and
-  inter-hand distance in `main.js` rather than through `GestureEngine`, so they get none of the
-  cooldown, hysteresis or debugging the classified poses get. Refactoring them into classified
-  gestures is the single highest-value cleanup.
-- **The test suite is not in the repo.** 85 checks exist and currently protect nothing.
 - **`pick()` is O(6,000) per call**, run every frame while pointing. Fine at 60fps; worth a spatial
   grid if it ever shows up in a profile.
 - **Expose density is coupled to particle budget.** `exposure = 170 / budget`, which is why
   brightness is stable across budgets. Correct, but it means the constant is only right for the
   current point-sprite falloff.
 - **Single fixed camera FOV**, 50°, hardcoded in `math.js` and mirrored in `stage.js` framing maths.
+- **Adaptive quality rebuilds geometry**, not just textures. Cheap enough at 4s+ of sustained
+  evidence, but a genuinely marginal machine could oscillate between two budgets forever.
+- **`transformPoint` ignores `w`.** Correct for affine transforms, wrong for projection. A separate
+  `unproject` exists for the latter, but the two sit close enough to invite a future mistake.
 
 ---
 
@@ -294,9 +290,9 @@ Assumes one developer, familiar with the codebase, and Phase 0 surfacing no cata
 
 | Phase | Work | Estimate |
 |---|---|---|
-| 0 | Gesture de-risking | 4 h |
-| 1 | Performance and adaptive quality | 4 h |
-| 2 | Repo essentials — license, tests, CI | 2 h |
+| 0 | Gesture de-risking | 4 h — **harness, cooldown, hysteresis, 105 tests done; real hands remain** |
+| 1 | Performance and adaptive quality | 4 h — **adaptive quality done; GPU measurement remains** |
+| 2 | Repo essentials — license, tests, CI | 2 h — **done** |
 | 3 | **25 models** | **20–30 h** |
 | 4 | Learning features | 6 h |
 | 5 | Depth — animations, sound, tours | 10 h |
@@ -360,11 +356,20 @@ python3 -m http.server 8000
 # open http://localhost:8000
 ```
 
-The test suite is not yet in the repo (Phase 2.2). Until then:
+Automated suites (Phase 2.2):
 
+```bash
+npm test              # 105 assertions, no browser needed, ~1s
+npm run test:browser  # 18 checks in headless Chrome, needs ./setup.sh first
+```
+
+Both also run in CI. Manual checks:
+
+- **Gestures** — open `tools/tune.html`, check classification against the curl bands in §3.1 with
+  a real hand, then copy the tuned JSON
 - **Picking** — every part of every model must be reachable in the exploded view
-- **Gestures** — check the classification against the curl bands in §3.1 with a real hand
-- **Performance** — watch the fps counter in the top left at the default budget
+- **Performance** — the top-left counter shows fps, particle count, and whether the budget is
+  `auto` or `fixed`
 
 ---
 

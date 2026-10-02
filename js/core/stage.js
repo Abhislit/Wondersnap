@@ -6,6 +6,15 @@ import { Camera, damp, smoothstep } from './math.js';
 export const PARTICLE_BUDGET = 240000;
 export const MIN_BUDGET = 4000;
 
+export function prefersReducedMotion() {
+  try {
+    return typeof matchMedia !== 'undefined'
+      && matchMedia('(prefers-reduced-motion: reduce)').matches;
+  } catch {
+    return false;
+  }
+}
+
 export function resolveBudget() {
   const raw = new URLSearchParams(window.location.search).get('particles');
   if (!raw) return PARTICLE_BUDGET;
@@ -22,7 +31,7 @@ export class Stage {
     const exposureParam = Number.parseFloat(
       new URLSearchParams(window.location.search).get('exposure'),
     );
-    this.exposure = (Number.isFinite(exposureParam) ? exposureParam : 170) / budget;
+    this.exposureBase = Number.isFinite(exposureParam) ? exposureParam : 170;
     this.system = new ParticleSystem(gl, budget);
     this.system.seedFromSphere(4.2);
     this.camera = new Camera();
@@ -51,7 +60,9 @@ export class Stage {
 
     this.palette = { top: [0.03, 0.05, 0.12], bottom: [0.0, 0.0, 0.02] };
     this.time = 0;
-    this.idleSpin = 0.11;
+    this.reducedMotion = prefersReducedMotion();
+    this.idleSpin = this.reducedMotion ? 0 : 0.11;
+    this.turbulenceScale = this.reducedMotion ? 0.25 : 1;
     this.pendingBuild = null;
   }
 
@@ -71,6 +82,22 @@ export class Stage {
     const builder = new ModelBuilder(this.system, this.budget);
     for (const def of model.parts) builder.part(def);
     this.pendingBuild = builder;
+  }
+
+  /**
+   * Rebuilds the particle textures at a new budget. Geometry is regenerated at the new
+   * size, which is why the caller treats this as expensive and only does it when the
+   * quality controller has sustained evidence that it is needed.
+   */
+  setBudget(budget) {
+    const next = Math.max(4000, Math.min(240000, Math.round(budget)));
+    if (next === this.budget) return false;
+    this.budget = next;
+    this.system = new ParticleSystem(this.gl, next);
+    this.system.seedFromSphere(4.2);
+    this.exposure = this.exposureBase / next;
+    if (this.model) this.loadModel(this.model);
+    return true;
   }
 
   buildPending() {
@@ -295,7 +322,11 @@ export class Stage {
     this.assemble = damp(this.assemble, this.assembleTarget, 3.4, dt);
     this.morph = damp(this.morph, this.morphTarget, 1.9, dt);
     this.explode = damp(this.explode, this.explodeTarget, 4.2, dt);
-    this.turbulence = damp(this.turbulence, this.assemble > 0.85 ? 0.18 : 1.0, 1.6, dt);
+    this.turbulence = damp(
+      this.turbulence,
+      (this.assemble > 0.85 ? 0.18 : 1.0) * this.turbulenceScale,
+      1.6, dt,
+    );
     this.highlight = damp(this.highlight, this.highlightGroup >= 0 ? 1 : 0, 6, dt);
     this.camera.yaw += this.idleSpin * dt * (1 - smoothstep(this.assemble));
     this.camera.update(dt);
@@ -310,12 +341,14 @@ export class Stage {
     this.viewAspect = this.canvas.clientWidth / Math.max(1, this.canvas.clientHeight);
     this.camera.aspect = this.viewAspect;
     this.system.viewProj.set(this.camera.viewProj(this.viewAspect));
+    this.exposure = this.exposureBase / this.budget;
   }
 
   render(dt) {
     const gl = this.gl;
     const w = this.canvas.width;
     const h = this.canvas.height;
+    if (!this.system) return;
 
     this.system.step({
       dt,

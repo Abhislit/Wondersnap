@@ -35,6 +35,23 @@ export function transformPoint(m, p) {
   ];
 }
 
+/** Homogeneous transform. Returns xyz and w so callers can do the perspective divide. */
+export function transformPoint4(m, x, y, z) {
+  return [
+    m[0] * x + m[4] * y + m[8] * z + m[12],
+    m[1] * x + m[5] * y + m[9] * z + m[13],
+    m[2] * x + m[6] * y + m[10] * z + m[14],
+    m[3] * x + m[7] * y + m[11] * z + m[15],
+  ];
+}
+
+/** Unprojects an NDC point to world space, dividing through by w. */
+export function unproject(m, ndc) {
+  const p = transformPoint4(m, ndc[0], ndc[1], ndc[2]);
+  if (Math.abs(p[3]) < 1e-9) return null;
+  return [p[0] / p[3], p[1] / p[3], p[2] / p[3]];
+}
+
 export function mat4Identity() {
   return new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
 }
@@ -162,10 +179,15 @@ export class Camera {
     };
   }
 
-  screenToWorldRay(nx, ny) {
-    const invVp = invert(this.viewProj(1));
-    const near = transformPoint(invVp, [nx, ny, -1]);
-    const far = transformPoint(invVp, [nx, ny, 1]);
+  /**
+   * Ray through a point in normalized device coordinates. `aspect` must match the
+   * aspect used for projection, otherwise the ray misses the pointer.
+   */
+  screenToWorldRay(nx, ny, aspect = 1) {
+    const invVp = invert(this.viewProj(aspect));
+    const near = unproject(invVp, [nx, ny, -1]);
+    const far = unproject(invVp, [nx, ny, 1]);
+    if (!near || !far) return null;
     return { origin: near, dir: normalize(subtract(far, near)) };
   }
 }

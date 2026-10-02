@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>WonderSnap — gesture tuning harness</title>
+<link rel="icon" href="../favicon.svg" type="image/svg+xml" />
+<style>
+  :root {
+    --bg: #06070f; --panel: rgba(12, 16, 32, 0.9); --line: rgba(150, 170, 255, 0.18);
+    --ink: #e8ecff; --muted: #97a0c0; --accent: #5ce1ff; --warn: #ff5c7a; --ok: #3ddc97;
+    --font: "Inter", "Segoe UI", system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font-family: var(--font); }
+  header {
+    padding: 14px 18px; border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  }
+  h1 { margin: 0; font-size: 17px; font-weight: 700; letter-spacing: -0.01em; }
+  h1 span { color: var(--accent); }
+  .spacer { flex: 1; }
+  button, select {
+    font-family: inherit; font-size: 13px; padding: 8px 14px; border-radius: 8px;
+    border: 1px solid var(--line); background: rgba(20, 25, 48, 0.8); color: var(--ink);
+    cursor: pointer;
+  }
+  button.primary { background: linear-gradient(92deg, var(--accent), #a98bff); color: #04121a; font-weight: 700; border: none; }
+  button:hover { border-color: var(--accent); }
+  main { display: grid; grid-template-columns: 320px 1fr; gap: 16px; padding: 16px; align-items: start; }
+  @media (max-width: 900px) { main { grid-template-columns: 1fr; } }
+  .card { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); padding: 14px 16px; }
+  .card h2 { margin: 0 0 12px; font-size: 11px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+  #video { width: 100%; border-radius: 10px; transform: scaleX(-1); background: #000; display: block; }
+  .pose {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px;
+  }
+  .pose div {
+    border: 1px solid var(--line); border-radius: 8px; padding: 8px 4px; text-align: center;
+    font-size: 11px; color: var(--muted); transition: all 0.1s;
+  }
+  .pose div.on { background: rgba(92, 225, 255, 0.18); border-color: var(--accent); color: var(--ink); font-weight: 700; }
+  .metric { display: flex; justify-content: space-between; font-size: 12px; padding: 3px 0; border-bottom: 1px solid rgba(150,170,255,0.07); }
+  .metric b { font-variant-numeric: tabular-nums; font-weight: 600; }
+  canvas.trace { width: 100%; height: 150px; display: block; border-radius: 8px; background: #0a0d1c; margin-top: 10px; }
+  .row { display: grid; grid-template-columns: 150px 1fr 56px; gap: 8px; align-items: center; margin-bottom: 7px; }
+  .row label { font-size: 11.5px; color: var(--muted); }
+  .row input[type=range] { width: 100%; accent-color: var(--accent); }
+  .row output { font-size: 11.5px; text-align: right; font-variant-numeric: tabular-nums; color: var(--ink); }
+  .legend { font-size: 11px; color: var(--muted); margin-top: 8px; line-height: 1.7; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; vertical-align: -1px; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 10px; line-height: 1.6; }
+  #status { font-size: 12px; padding: 6px 10px; border-radius: 999px; border: 1px solid var(--line); }
+  #status.err { color: var(--warn); border-color: rgba(255,92,122,0.5); }
+  code { font-size: 11px; color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1>WonderSnap <span>gesture tuning harness</span></h1>
+  <span id="status">idle</span>
+  <div class="spacer"></div>
+  <button id="copy">Copy current tuning as JSON</button>
+  <button id="reset">Reset to defaults</button>
+  <button class="primary" id="start">Start camera</button>
+</header>
+
+<main>
+  <section class="card">
+    <h2>Camera</h2>
+    <video id="video" playsinline muted></video>
+    <div class="pose" id="poses"></div>
+    <div class="hint">
+      Hold each gesture steady for a couple of seconds, then twist slowly.
+      Watch the traces below — a threshold should sit in the gap between the
+      two clusters, never inside one.
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Live ratios</h2>
+    <div id="metrics"></div>
+    <canvas class="trace" id="trace"></canvas>
+    <div class="legend">
+      <div><span class="dot" style="background:#5ce1ff"></span>thumb-index distance <span id="v-pinch"></span></div>
+      <div><span class="dot" style="background:#b07cff"></span>index straightness <span id="v-straight"></span></div>
+      <div><span class="dot" style="background:#ff5c7a"></span>index extension <span id="v-extend"></span></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Thresholds</h2>
+    <div id="sliders"></div>
+    <div class="hint">
+      Adjust a slider, then retest. If a pose needs a wider band than these
+      defaults, prefer fixing the landmark maths over loosening the number.
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Session tally</h2>
+    <div id="tally"></div>
+    <div class="hint">
+      Counts frames classified per pose. Use this to catch a pose that fires
+      while you are holding a different one.
+    </div>
+  </section>
+</main>
+
+<script type="module">
+import { HandLandmarker, FilesetResolver } from '../vendor/mediapipe/vision_bundle.mjs';
+import { GestureEngine, analyzeHand, classifyPose, DEFAULT_TUNING, POSE_ORDER } from '../js/core/gestures.js';
+
+const WASM = new URL('../vendor/mediapipe/', import.meta.url).href;
+const MODEL = new URL('../vendor/mediapipe/hand_landmarker.task', import.meta.url).href;
+
+const video = document.getElementById('video');
+const statusEl = document.getElementById('status');
+const posesEl = document.getElementById('poses');
+const metricsEl = document.getElementById('metrics');
+const slidersEl = document.getElementById('sliders');
+const tallyEl = document.getElementById('tally');
+const trace = document.getElementById('trace');
+const tctx = trace.getContext('2d');
+
+const POSE_LABELS = { pinch: 'pinch', fist: 'fist', point: 'point', openPalm: 'open palm', neutral: 'neutral' };
+for (const name of POSE_ORDER) {
+  const el = document.createElement('div');
+  el.textContent = POSE_LABELS[name];
+  el.dataset.pose = name;
+  posesEl.appendChild(el);
+}
+
+const tuning = { ...DEFAULT_TUNING };
+const engine = new GestureEngine(tuning);
+const tally = Object.fromEntries(POSE_ORDER.map((n) => [n, 0]));
+
+const SLIDERS = [
+  ['STRAIGHT_RATIO', 1.0, 1.3, 0.005],
+  ['REACH_RATIO', 1.05, 1.8, 0.01],
+  ['PINCH_DISTANCE', 0.25, 0.7, 0.01],
+  ['SNAP_TIGHT_RATIO', 0.2, 0.6, 0.01],
+  ['SNAP_MIN_RATE', 0.0005, 0.005, 0.0001],
+  ['ENTER_FRAMES', 1, 10, 1],
+  ['EXIT_FRAMES', 1, 12, 1],
+  ['TWIST_DEADZONE', 0.005, 0.12, 0.005],
+  ['TWIST_GAIN', 0.2, 3, 0.05],
+  ['ZOOM_DEADZONE', 0.004, 0.06, 0.002],
+  ['ZOOM_GAIN', 0.2, 2, 0.05],
+];
+
+const inputs = {};
+for (const [key, min, max, step] of SLIDERS) {
+  const row = document.createElement('div');
+  row.className = 'row';
+  const label = document.createElement('label');
+  label.textContent = key;
+  label.htmlFor = `s-${key}`;
+  const input = document.createElement('input');
+  input.type = 'range';
+  input.id = `s-${key}`;
+  input.min = min; input.max = max; input.step = step;
+  input.value = tuning[key];
+  const out = document.createElement('output');
+  out.textContent = fmt(tuning[key]);
+  input.addEventListener('input', () => {
+    tuning[key] = Number(input.value);
+    engine.setTuning({ [key]: tuning[key] });
+    out.textContent = fmt(tuning[key]);
+  });
+  inputs[key] = { input, out };
+  row.append(label, input, out);
+  slidersEl.appendChild(row);
+}
+
+function fmt(v) {
+  return Number.isInteger(v) ? String(v) : Number(v).toFixed(String(v).includes('0001') ? 4 : 3);
+}
+
+document.getElementById('reset').addEventListener('click', () => {
+  Object.assign(tuning, DEFAULT_TUNING);
+  engine.setTuning(DEFAULT_TUNING);
+  for (const [key, { input, out }] of Object.entries(inputs)) {
+    input.value = tuning[key];
+    out.textContent = fmt(tuning[key]);
+  }
+  for (const k of Object.keys(tally)) tally[k] = 0;
+});
+
+document.getElementById('copy').addEventListener('click', async () => {
+  const picked = Object.fromEntries(SLIDERS.map(([k]) => [k, tuning[k]]));
+  const text = JSON.stringify(picked, null, 2);
+  try {
+    await navigator.clipboard.writeText(text);
+    statusEl.textContent = 'tuning copied to clipboard';
+    statusEl.classList.remove('err');
+  } catch {
+    console.log(text);
+    statusEl.textContent = 'see console for tuning JSON';
+  }
+});
+
+const history = [];
+let landmarker = null;
+let running = false;
+
+document.getElementById('start').addEventListener('click', async () => {
+  if (running) return;
+  statusEl.textContent = 'requesting camera…';
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { width: { ideal: 640 }, height: { ideal: 480 } },
+      audio: false,
+    });
+    video.srcObject = stream;
+    await video.play();
+
+    statusEl.textContent = 'loading landmark model…';
+    const fileset = await FilesetResolver.forVisionTasks(WASM);
+    landmarker = await HandLandmarker.createFromOptions(fileset, {
+      baseOptions: { modelAssetPath: MODEL, delegate: 'GPU' },
+      runningMode: 'VIDEO',
+      numHands: 2,
+      minHandDetectionConfidence: 0.5,
+      minHandPresenceConfidence: 0.5,
+      minTrackingConfidence: 0.5,
+    });
+
+    running = true;
+    statusEl.textContent = 'live';
+    requestAnimationFrame(loop);
+  } catch (err) {
+    statusEl.textContent = err.message;
+    statusEl.classList.add('err');
+  }
+});
+
+function loop() {
+  if (!running) return;
+  if (video.readyState >= 2) {
+    const result = landmarker.detectForVideo(video, performance.now());
+    const hands = [];
+    for (let i = 0; i < result.landmarks.length; i++) {
+      const raw = result.landmarks[i];
+      const handedness = result.handedness?.[i] || result.handednesses?.[i];
+      hands.push(analyzeHand(handedness, raw.map((p) => ({ x: p.x, y: p.y, z: p.z })), tuning));
+    }
+    hands.sort((a, b) => a.center[2] - b.center[2]);
+
+    const state = engine.update(hands, 1 / 60);
+    tally[state.pose] = (tally[state.pose] || 0) + 1;
+    render(hands, state);
+  }
+  requestAnimationFrame(loop);
+}
+
+function render(hands, state) {
+  for (const el of posesEl.children) {
+    el.classList.toggle('on', el.dataset.pose === state.pose);
+  }
+
+  const h = hands[0];
+  if (h) {
+    history.push({ pinch: h.pinchDistance, straight: h.byName.index.straightness, extend: h.byName.index.extension });
+    if (history.length > 600) history.shift();
+    const metrics = [
+      ['pose (raw)', classifyPose(h)],
+      ['pose (active)', state.pose],
+      ['hands', state.handCount],
+      ['thumb-index', h.pinchDistance.toFixed(3)],
+      ['index straightness', h.byName.index.straightness.toFixed(3)],
+      ['index extension', h.byName.index.extension.toFixed(3)],
+      ['extended fingers', `${h.extendedCount}/4`],
+      ['palm roll', `${(h.roll * 57.2958).toFixed(0)}°`],
+    ];
+    for (const f of ['middle', 'ring', 'pinky']) {
+      metrics.push([`${f} extension`, h.byName[f].extension.toFixed(3)]);
+    }
+    metrics.push(['twist yaw', state.camera.yaw.toFixed(4)]);
+    metrics.push(['two-hand zoom', state.camera.zoom.toFixed(4)]);
+    metricsEl.innerHTML = metrics
+      .map(([k, v]) => `<div class="metric"><span>${k}</span><b>${v}</b></div>`)
+      .join('');
+    document.getElementById('v-pinch').textContent = `(PINCH_DISTANCE ${tuning.PINCH_DISTANCE})`;
+    document.getElementById('v-straight').textContent = `(STRAIGHT_RATIO ${tuning.STRAIGHT_RATIO})`;
+    document.getElementById('v-extend').textContent = `(REACH_RATIO ${tuning.REACH_RATIO})`;
+  }
+
+  const total = Object.values(tally).reduce((a, b) => a + b, 0) || 1;
+  tallyEl.innerHTML = POSE_ORDER.map((n) => {
+    const pct = ((tally[n] / total) * 100).toFixed(1);
+    return `<div class="metric"><span>${POSE_LABELS[n]}</span><b>${pct}%</b></div>`;
+  }).join('');
+
+  drawTrace();
+}
+
+function drawTrace() {
+  const w = trace.width = trace.clientWidth * devicePixelRatio;
+  const h = trace.height = trace.clientHeight * devicePixelRatio;
+  tctx.clearRect(0, 0, w, h);
+
+  const series = [
+    { key: 'pinch', color: '#5ce1ff', threshold: tuning.PINCH_DISTANCE, label: 'pinch' },
+    { key: 'straight', color: '#b07cff', threshold: tuning.STRAIGHT_RATIO, label: 'straight' },
+    { key: 'extend', color: '#ff5c7a', threshold: tuning.REACH_RATIO, label: 'extend' },
+  ];
+
+  let max = 1;
+  for (const s of series) {
+    for (const p of history) max = Math.max(max, p[s.key], s.threshold * 1.6);
+  }
+
+  for (const s of series) {
+    const y = h - (s.threshold / max) * h;
+    tctx.strokeStyle = `${s.color}44`;
+    tctx.setLineDash([4, 4]);
+    tctx.beginPath();
+    tctx.moveTo(0, y);
+    tctx.lineTo(w, y);
+    tctx.stroke();
+    tctx.setLineDash([]);
+
+    tctx.strokeStyle = s.color;
+    tctx.lineWidth = 1.4 * devicePixelRatio;
+    tctx.beginPath();
+    history.forEach((p, i) => {
+      const x = (i / Math.max(1, history.length - 1)) * w;
+      const py = h - (p[s.key] / max) * h;
+      if (i === 0) tctx.moveTo(x, py);
+      else tctx.lineTo(x, py);
+    });
+    tctx.stroke();
+  }
+}
+</script>
+</body>
+</html>

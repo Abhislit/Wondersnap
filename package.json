@@ -1,0 +1,21 @@
+{
+  "name": "wondersnap",
+  "version": "0.1.0",
+  "description": "A 3D learning experience you control with nothing but your bare hands",
+  "license": "MIT",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "setup": "bash ./setup.sh",
+    "start": "python3 -m http.server 8000",
+    "test": "node tests/run.mjs",
+    "test:browser": "node tests/browser.test.mjs",
+    "tune": "python3 -m http.server 8000 && echo 'open http://localhost:8000/tools/tune.html'"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^23.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

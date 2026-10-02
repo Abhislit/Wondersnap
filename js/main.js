@@ -1,5 +1,7 @@
 import { createContext } from './gpu/gl.js';
 import { Stage, resolveBudget } from './core/stage.js';
+import { QualityController } from './core/quality.js';
+import { Progress } from './core/progress.js';
 import { HandTracker } from './core/tracker.js';
 import { GestureEngine } from './core/gestures.js';
 import { MODELS, modelById } from './models/index.js';
@@ -37,6 +39,8 @@ const quizNext = document.getElementById('quizNext');
 let stage;
 let tracker;
 let gestures;
+let quality;
+let progress;
 let quiz;
 let narrator;
 let running = false;
@@ -45,15 +49,9 @@ let frames = 0;
 let fpsTimer = 0;
 let lastFps = 0;
 let modelIndex = 0;
-let openPalmLatched = false;
-let fistLatched = false;
-let snapLatched = false;
 let inspectPart = null;
 let pointedPart = null;
-let twoHandSpan = null;
 let lastPinchMid = null;
-let lastWrist = null;
-let twistReference = null;
 let pendingCapture = null;
 
 function setStatus(text, level = 'info') {
@@ -120,7 +118,20 @@ function showPanel(part) {
   panelCategory.textContent = part ? `${stage.model.name} · ${part.count.toLocaleString()} particles` : '';
   panelBody.textContent = part ? part.description : '';
   panel.hidden = !part;
-  if (part) narrator.say(`${part.name}. ${part.description}`);
+  if (part) {
+    progress?.recordExplored(stage.model.id, part.id);
+    narrator.say(`${part.name}. ${part.description}`);
+    refreshCompletion();
+  }
+}
+
+function refreshCompletion() {
+  if (!progress || !stage?.model) return;
+  const part = stage.parts.find((p) => p.id === inspectPart?.id);
+  if (!part) return;
+  const seen = progress.exploredCount(stage.model.id);
+  const total = stage.parts.length;
+  panelCategory.textContent = `${stage.model.name} · ${seen} of ${total} explored`;
 }
 
 function closePanel() {
@@ -180,27 +191,11 @@ function pointerFromHand(hand) {
   };
 }
 
-function twistAngle(hand) {
-  const lm = hand.landmarks;
-  const wrist = lm[0];
-  const middle = lm[9];
-  const index = lm[5];
-  const dx = middle.x - index.x;
-  const dy = middle.y - index.y;
-  return Math.atan2(dy, dx);
-}
-
-function handleGestures(state, dt) {
-  const { primary, secondary, pose } = state;
+function handleGestures(state) {
+  const { primary, pose, camera } = state;
 
   if (!primary) {
-    openPalmLatched = false;
-    fistLatched = false;
-    snapLatched = false;
-    twoHandSpan = null;
-    twistReference = null;
     pointedPart = null;
-    lastWrist = null;
     if (inspectPart) {
       inspectPart = null;
       closePanel();
@@ -211,8 +206,12 @@ function handleGestures(state, dt) {
 
   const pointer = pointerFromHand(primary);
 
-  if (primary.poses.fist) {
-    setHint('Fist detected — assembling.');
+  if (camera.yaw !== 0 || camera.pitch !== 0) {
+    stage.camera.orbit(camera.yaw, camera.pitch);
+  }
+  if (camera.zoom !== 0) {
+    stage.camera.zoom(1 - camera.zoom);
+    setHint('Zooming with two hands.');
   }
 
   if (pose === 'point') {
@@ -227,82 +226,22 @@ function handleGestures(state, dt) {
       }
     }
     if (part && !quiz.active) showPanelThrottled(part);
-    setHint(part ? `Pointing at ${part.name} — pinch to pull it out.` : 'Point at a part to read what it does.');
-  } else {
-    if (pointedPart) {
-      pointedPart = null;
-      if (!inspectPart) stage.setHighlight(-1);
-    }
+    setHint(part
+      ? `Pointing at ${part.name} — pinch to pull it out.`
+      : 'Point at a part to read what it does.');
+  } else if (pointedPart) {
+    pointedPart = null;
+    if (!inspectPart) stage.setHighlight(-1);
   }
 
-  if (secondary) {
-    const span = Math.hypot(primary.center[0] - secondary.center[0], primary.center[1] - secondary.center[1]);
-    if (twoHandSpan === null) twoHandSpan = span;
-    else {
-      const ratio = span / Math.max(1e-3, twoHandSpan);
-      if (Math.abs(ratio - 1) > 0.012) {
-        stage.camera.zoom(1 - (ratio - 1) * 0.9);
-        twoHandSpan = span;
-        setHint('Zooming with two hands.');
-      }
-    }
-    const roll = twistAngle(primary) - twistAngle(secondary);
-    if (twistReference === null) twistReference = roll;
-    else {
-      const delta = roll - twistReference;
-      if (Math.abs(delta) > 0.004) {
-        stage.camera.orbit(delta * 1.4, 0);
-        twistReference = roll;
-      }
-    }
-  } else {
-    twoHandSpan = null;
-    const roll = twistAngle(primary);
-    if (twistReference === null) {
-      twistReference = roll;
-    } else {
-      const delta = roll - twistReference;
-      if (Math.abs(delta) > 0.005) {
-        stage.camera.orbit(delta * 1.1, delta * 0.15);
-        twistReference = roll;
-      }
-    }
+  if (pose === 'pinch' && gestures.pinchStart && gestures.pinchStart.grabbed) {
+    if (gestures.pinchStart.part) stage.setHighlight(gestures.pinchStart.part.group);
+    setHint('Release the pinch to drop the part back.');
   }
 
-  if (lastWrist) {
-    const dx = primary.center[0] - lastWrist[0];
-    const dy = primary.center[1] - lastWrist[1];
-    if (Math.abs(dx) > 0.0016) stage.camera.orbit(dx * 2.2, 0);
-    if (Math.abs(dy) > 0.0016) stage.camera.orbit(0, -dy * 1.6);
-  }
-  lastWrist = [...primary.center];
-
-  if (pose === 'pinch') {
-    if (gestures.pinchStart && !gestures.pinchStart.grabbed) {
-      const target = stage.pick(pointer.x, pointer.y) || pointedPart;
-      if (target) {
-        gestures.pinchStart.grabbed = true;
-        gestures.pinchStart.part = target;
-        stage.beginGrab(target.group);
-        showPanel(target);
-        narrator.say(`Pulling out the ${target.name}.`);
-      }
-    } else if (gestures.pinchStart && gestures.pinchStart.grabbed) {
-      if (lastPinchMid) {
-        const dx = (gestures.pinchStart.hand.pinchMid.x - lastPinchMid[0]);
-        const dy = (gestures.pinchStart.hand.pinchMid.y - lastPinchMid[1]);
-        const dz = (gestures.pinchStart.hand.pinchMid.z - lastPinchMid[2]);
-        stage.moveGrab([dx * 6, -dy * 6, dz * 4]);
-      }
-      if (gestures.pinchStart.part) {
-        stage.setHighlight(gestures.pinchStart.part.group);
-      }
-      setHint('Release the pinch to drop the part back.');
-    }
-  }
-  lastPinchMid = primary.pinchMid ? [primary.pinchMid.x, primary.pinchMid.y, primary.pinchMid.z] : null;
-
-  if (stage.assembleTarget < 0.9 && !fistLatched && pose === 'fist') fistLatched = true;
+  lastPinchMid = primary.pinchMid
+    ? [primary.pinchMid.x, primary.pinchMid.y, primary.pinchMid.z]
+    : null;
 }
 
 let lastPanelPart = null;
@@ -317,26 +256,18 @@ function showPanelThrottled(part) {
 
 function wireGestureCallbacks() {
   gestures.onSnap = () => {
-    if (snapLatched) return;
-    snapLatched = true;
-    setTimeout(() => { snapLatched = false; }, 700);
     stage.burst();
     narrator.say(stage.assemble > 0.5 ? 'Particles released.' : 'Forming the model.');
     setHint('Particles materialising — make a fist to assemble.');
   };
 
   gestures.onFist = () => {
-    if (fistLatched) return;
-    fistLatched = true;
     stage.form();
     narrator.say('Assembling.');
     setHint('Assembled. Open your hand to switch model or explode.');
   };
 
   gestures.onOpenPalm = () => {
-    if (openPalmLatched) return;
-    openPalmLatched = true;
-    setTimeout(() => { openPalmLatched = false; }, 900);
     if (quiz.active) {
       quiz.next();
       return;
@@ -447,11 +378,22 @@ function frame() {
 
   const hands = tracker.poll();
   const state = gestures.update(hands, dt);
-  handleGestures(state, dt);
+  handleGestures(state);
 
   stage.update(dt);
   stage.render(dt);
   drawOverlay(hands, state);
+
+  quality?.sample(dt);
+  if (quality?.shouldRebuild()) {
+    const next = quality.pendingBudget;
+    if (stage.setBudget(next)) {
+      quality.commit();
+      setStatus(`Quality adjusted to ${(stage.budget / 1000).toFixed(0)}k particles`);
+    } else {
+      quality.commit();
+    }
+  }
 
   if (pendingCapture) pendingCapture(stage, stage.gl, canvas);
 
@@ -461,7 +403,8 @@ function frame() {
     lastFps = frames / fpsTimer;
     frames = 0;
     fpsTimer = 0;
-    fpsEl.textContent = `${lastFps.toFixed(0)} fps · ${(stage.budget / 1000).toFixed(0)}k particles · ${tracker.fps.toFixed(0)} fps CV`;
+    const mode = quality?.pinned ? 'fixed' : 'auto';
+    fpsEl.textContent = `${lastFps.toFixed(0)} fps · ${(stage.budget / 1000).toFixed(0)}k particles (${mode}) · ${tracker.fps.toFixed(0)} fps CV`;
   }
 
   requestAnimationFrame(frame);
@@ -474,8 +417,18 @@ async function startExperience() {
   try {
     const { gl, info } = createContext(canvas);
     const budget = resolveBudget();
+    const pinned = new URLSearchParams(window.location.search).get('particles') !== null;
+    quality = new QualityController({
+      initialBudget: budget,
+      ceiling: budget,
+      pinned,
+    });
     stage = new Stage(canvas, gl, budget);
+    progress = new Progress();
+    progress.syncRegistry(MODELS);
     window.__stage = stage;
+    window.__progress = progress;
+    window.__showPanel = showPanel;
     window.__capture = (fn) => new Promise((resolve) => {
       const timer = setTimeout(() => resolve({ timedOut: true }), 2000);
       pendingCapture = (stage, gl, cv) => {
@@ -520,16 +473,36 @@ async function startExperience() {
     gate.classList.add('hidden');
     setHint('Snap your fingers to materialise the particles.');
   } catch (err) {
+    running = false;
     gateStart.disabled = false;
     gateStart.textContent = 'Retry';
     gateError.hidden = false;
-    gateError.textContent = err.message;
-    setStatus(err.message, 'error');
-    if (running) {
-      running = false;
-    }
+    gateError.textContent = describeStartupFailure(err);
+    setStatus(describeStartupFailure(err), 'error');
     console.error(err);
   }
+}
+
+/** Turns a raw DOMException into something a person can act on. */
+function describeStartupFailure(err) {
+  const name = err?.name || '';
+  if (name === 'NotAllowedError' || name === 'SecurityError') {
+    return 'Camera permission was denied. Allow it in the browser address bar, then press Retry. '
+      + 'You can still use the model tabs and buttons without a camera.';
+  }
+  if (name === 'NotFoundError' || name === 'OverconstrainedError') {
+    return 'No camera was found. Connect one and press Retry, or use the tabs and buttons.';
+  }
+  if (name === 'NotReadableError') {
+    return 'The camera is in use by another application. Close it and press Retry.';
+  }
+  if (/webgl/i.test(err?.message || '')) {
+    return `${err.message} Try a browser with WebGL2 and hardware acceleration enabled.`;
+  }
+  if (/fetch|network|Failed to load/i.test(err?.message || '')) {
+    return `${err.message} Run ./setup.sh to fetch the MediaPipe runtime, then reload.`;
+  }
+  return err?.message || 'Something went wrong starting the app.';
 }
 
 gateStart.addEventListener('click', startExperience);
@@ -565,3 +538,16 @@ window.addEventListener('keydown', (event) => {
 });
 
 window.addEventListener('resize', resize);
+
+canvas.addEventListener('webglcontextlost', (event) => {
+  event.preventDefault();
+  if (running) running = false;
+  setStatus('Graphics context lost. Waiting for the browser to restore it…', 'error');
+  overlay.style.opacity = '0';
+});
+
+canvas.addEventListener('webglcontextrestored', () => {
+  setStatus('Graphics context restored. Reload the page to continue.', 'error');
+  overlay.style.opacity = '1';
+  running = false;
+});
