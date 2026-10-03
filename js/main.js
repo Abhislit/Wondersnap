@@ -223,9 +223,9 @@ function wireGestureCallbacks() {
     setHint('Assembled. Open your hand to switch model or explode.');
   };
 
-  gestures.onOpenPalm = () => {
-    selectModel(modelIndex + 1, true);
-  };
+  // Open palm is recognised but intentionally unbound. It used to advance to the next
+  // model, which made an incidental open hand yank the scene away mid-inspection.
+  gestures.onOpenPalm = null;
 
   gestures.onPinchStart = (hand) => {
     const pointer = pointerFromHand(hand);

@@ -24,7 +24,6 @@ The camera requires a secure context. `localhost` counts; a LAN IP does not, so 
 |---|---|
 | Snap your fingers | Materialises / releases the particle cloud |
 | Fist | Assembles the particles into the model |
-| Open hand | Switch to the next model |
 | Twist your wrist | Rotate and tilt the model |
 | Both hands apart / together | Zoom |
 | Point | Highlight a component and read what it does |
