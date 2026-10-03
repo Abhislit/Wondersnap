@@ -24,14 +24,14 @@ The camera requires a secure context. `localhost` counts; a LAN IP does not, so 
 |---|---|
 | Snap your fingers | Materialises / releases the particle cloud |
 | Fist | Assembles the particles into the model |
-| Open hand | Toggle exploded view, or switch to the next model |
+| Open hand | Switch to the next model |
 | Twist your wrist | Rotate and tilt the model |
 | Both hands apart / together | Zoom |
 | Point | Highlight a component and read what it does |
 | Pinch and pull | Drag a component out for a closer look |
 
 Everything is also reachable by mouse, for when a hand is not available: the buttons in the
-top bar, and the model tabs. `Esc` closes the inspector or the quiz.
+top bar, and the model tabs. `Esc` closes the inspector.
 
 ## How it works
 
@@ -131,14 +131,14 @@ js/
     heart.js  dna.js  eiffel.js  jetEngine.js
     index.js          registry
   ui/
-    quiz.js  narrator.js
+    narrator.js
 vendor/mediapipe/     MediaPipe runtime, gitignored — run ./setup.sh
 ```
 
 ## Adding a model
 
 A model is data. Define parts, give each a sampler, and it works everywhere — picking,
-exploded view, quiz and narration all derive from the part list.
+exploded view and narration all derive from the part list.
 
 ```js
 export default {
@@ -216,8 +216,8 @@ register, and timeline.
 What is verified:
 
 - 85 automated checks in headless Chrome — rendering, all four models, pose classification,
-  snap detection, picking accuracy, explode/cutaway/burst state, camera clamping, quiz
-  scoring, and UI wiring.
+  snap detection, picking accuracy, explode/cutaway/burst state, camera clamping, progress
+  persistence, adaptive quality, and UI wiring.
 - Picking reaches **every** part in every model when exploded.
 
 What is **not** verified:

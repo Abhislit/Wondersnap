@@ -31,7 +31,7 @@ export class Stage {
     const exposureParam = Number.parseFloat(
       new URLSearchParams(window.location.search).get('exposure'),
     );
-    this.exposureBase = Number.isFinite(exposureParam) ? exposureParam : 170;
+    this.exposureBase = Number.isFinite(exposureParam) ? exposureParam : 1200;
     this.system = new ParticleSystem(gl, budget);
     this.system.seedFromSphere(4.2);
     this.camera = new Camera();
@@ -123,7 +123,7 @@ export class Stage {
     this.camera.maxDistance = this.frameDistance(1) * 1.4;
     this.camera.setDistance(this.frameDistance(this.explodeTarget));
     this.camera.distance = this.camera.targetDistance * 1.6;
-    this.pointScale = radius * 900;
+    this.pointScale = radius * 520;
 
     this.morph = 0;
     this.morphTarget = 1;

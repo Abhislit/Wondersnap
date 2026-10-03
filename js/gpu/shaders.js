@@ -169,7 +169,7 @@ void main() {
   gl_Position = clip;
 
   float dist = max(clip.w, 0.001);
-  gl_PointSize = clamp(uPointScale * colorData.a * (1.0 + uSizeBoost) / dist, 1.0, 26.0);
+  gl_PointSize = clamp(uPointScale * colorData.a * (1.0 + uSizeBoost) / dist, 1.0, 13.0);
 
   vColor = colorData.rgb;
   vEnergy = posData.w;
@@ -198,12 +198,12 @@ void main() {
   float r2 = dot(c, c);
   if (r2 > 1.0) discard;
 
-  float core = pow(1.0 - r2, 2.4);
-  float glow = pow(1.0 - r2, 0.65) * 0.35;
+  float core = pow(1.0 - r2, 4.5);
+  float halo = pow(1.0 - r2, 1.8) * 0.18;
 
-  vec3 rgb = vColor * (core * 1.35 + glow);
-  rgb += vec3(core * core * 0.55);
-  float alpha = (core + glow) * vFade * clamp(vEnergy, 0.0, 1.6) * uExposure;
+  vec3 rgb = vColor * (core * 2.4 + halo);
+  rgb += vec3(core * core * 1.1);
+  float alpha = (core + halo) * vFade * clamp(vEnergy, 0.0, 1.6) * uExposure;
 
   fragColor = vec4(rgb * alpha, alpha);
 }`;

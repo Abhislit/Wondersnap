@@ -3,7 +3,7 @@ const VERSION = 1;
 const MAX_STORED_BYTES = 16384;
 
 /**
- * Tracks what a learner has explored and how they have done in quizzes.
+ * Tracks what a learner has explored, so progress survives a reload.
  *
  * Storage is treated as untrusted: a corrupt or hostile value must never throw,
  * and anything unrecognised is dropped rather than trusted. If localStorage is
@@ -65,14 +65,7 @@ export class Progress {
       const parts = Array.isArray(entry.parts)
         ? entry.parts.filter((p) => typeof p === 'string').slice(0, 200)
         : [];
-      const quiz = entry.quiz && typeof entry.quiz === 'object' ? entry.quiz : {};
-      models[modelId] = {
-        parts: [...new Set(parts)],
-        quiz: {
-          correct: Number.isFinite(quiz.correct) ? Math.max(0, quiz.correct) : 0,
-          total: Number.isFinite(quiz.total) ? Math.max(0, quiz.total) : 0,
-        },
-      };
+      models[modelId] = { parts: [...new Set(parts)] };
     }
     this.data = { version: VERSION, models };
   }
@@ -101,7 +94,7 @@ export class Progress {
 
   entry(modelId) {
     if (!this.data.models[modelId]) {
-      this.data.models[modelId] = { parts: [], quiz: { correct: 0, total: 0 } };
+      this.data.models[modelId] = { parts: [] };
     }
     return this.data.models[modelId];
   }
@@ -143,33 +136,6 @@ export class Progress {
     return this.exploredCount(modelId) >= parts.length;
   }
 
-  recordAnswer(modelId, correct) {
-    const entry = this.entry(modelId);
-    entry.quiz.total += 1;
-    if (correct) entry.quiz.correct += 1;
-    this.save();
-  }
-
-  quizScore(modelId) {
-    const quiz = this.data.models[modelId]?.quiz;
-    return { correct: quiz?.correct ?? 0, total: quiz?.total ?? 0 };
-  }
-
-  quizTotals() {
-    let correct = 0;
-    let total = 0;
-    for (const entry of Object.values(this.data.models)) {
-      correct += entry.quiz?.correct ?? 0;
-      total += entry.quiz?.total ?? 0;
-    }
-    return { correct, total };
-  }
-
-  quizAccuracy(modelId) {
-    const { correct, total } = this.quizScore(modelId);
-    return total ? correct / total : 0;
-  }
-
   summary(registry) {
     let partsTotal = 0;
     let partsExplored = 0;
@@ -186,14 +152,12 @@ export class Progress {
       if (this.isComplete(model.id, list)) modelsComplete++;
     }
 
-    const quiz = this.quizTotals();
     return {
       partsTotal,
       partsExplored,
       modelsSeen,
       modelsComplete,
       modelsTotal: registry.length,
-      quiz,
       overall: partsTotal ? partsExplored / partsTotal : 0,
     };
   }

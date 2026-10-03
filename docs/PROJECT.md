@@ -51,7 +51,6 @@ headless Chrome (`npm run test:browser`). Both run in CI.
 | Burst / reassemble | Assembles, releases, spikes turbulence, and can reform |
 | Pinch-drag | Displacement accumulates while held, decays on release |
 | Camera | Zoom clamps at both ends; pitch clamps; orbit works |
-| Quiz | 4 options, correct/incorrect marked and explained, repeat answers ignored, next advances, scoring correct |
 | UI | All buttons wired; narration toggles; cutaway chip syncs; 4 tabs switch models; Esc closes overlays |
 | Progress | Inspecting a part persists; survives reload; corrupt storage recovers; bounded payload |
 | Build | `setup.sh` verified end-to-end from a fresh clone: downloads runtime, serves, boots to "Tracking live", zero console errors |
@@ -66,6 +65,7 @@ These are the real gaps. None are hidden in the README.
 | **Never run at 240k on a real GPU** | All verification ran at 8k–20k under software rendering (SwiftShader). Framerate at full budget is unmeasured. Adaptive quality mitigates but does not measure this. |
 | **4 of 29 models** | The headline claim. |
 | **Silent** | No audio at all. Engine models in particular would benefit enormously. |
+| **Quiz removed** | Cut from the build at the maintainer's request; narration and the inspector carry the teaching load. |
 | **Silent by decision** | Audio was deliberately deferred; see §5.2. |
 | **Desktop-only** | No touch fallback, so tablets and phones cannot use it. |
 | **Single-language, no i18n** | Narration is English-only with hardcoded strings throughout the UI. |
@@ -209,8 +209,8 @@ because the geometry is precise rather than anatomical.
 Model authoring checklist per model:
 1. Shell over solid. A filled volume occludes everything inside it — both visually and for picking.
    This cost real debugging time on the heart's ventricles.
-2. Every part needs a `name` and a `description` over ~60 characters. The quiz and narration
-   derive entirely from these; a thin description produces a thin quiz.
+2. Every part needs a `name` and a `description` over ~60 characters. Narration and the
+   inspector read these verbatim, so a thin description reads thin on screen.
 3. Verify the part is reachable: `selectable` must be true for every part in the exploded view.
 4. Aim for 6–12 parts.
 5. Weight parts by visual importance, not by particle budget convenience.
@@ -221,7 +221,6 @@ Model authoring checklist per model:
 |---|---|---|
 | 4.1 | Track explored parts per model; persist to `localStorage` | **Done** — `js/core/progress.js`, 16 tests, corrupt-storage safe |
 | 4.2 | Completion indicator — N of M parts understood | **Done** — inspector shows "3 of 9 explored" |
-| 4.3 | Quiz results across sessions | **Done** — correct/total persisted per model |
 | 4.4 | Narration on part hover, not only on inspect | **Not started** |
 | 4.5 | A visible model-completion view | **Not started** — data exists, no UI yet |
 
@@ -333,7 +332,7 @@ js/
     heart.js dna.js eiffel.js jetEngine.js
     index.js          registry
   ui/
-    quiz.js narrator.js
+    narrator.js
 vendor/mediapipe/     gitignored — fetched by setup.sh
 ```
 
@@ -343,8 +342,8 @@ The simulate pass is a single full-screen quad writing position and velocity int
 FBO with two colour attachments; the draw pass reads those textures directly in the vertex shader.
 Nothing round-trips through the CPU, which is what makes 240k particles viable without an engine.
 
-**Adding a model** is data, not code — see the README. Picking, exploded view, quiz and narration
-all derive from the part list, so a new model gets all four for free.
+**Adding a model** is data, not code — see the README. Picking, exploded view and narration all
+derive from the part list, so a new model gets all three for free.
 
 ---
 
@@ -375,8 +374,8 @@ Both also run in CI. Manual checks:
 
 ## 9. Honest summary
 
-The engine is real and works. The GPU pipeline, gesture classifier, picking system, quiz and
-narration are all implemented and tested — picking reaches every part of every model, and pose
+The engine is real and works. The GPU pipeline, gesture classifier, picking system, narration
+and progress tracking are all implemented and tested — picking reaches every part of every model, and pose
 classification correctly distinguishes all four poses plus a neutral state.
 
 Two things are not true yet, and both are load-bearing for the project's claims:

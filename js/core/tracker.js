@@ -13,6 +13,7 @@ export class HandTracker {
     this.hands = [];
     this.fps = 0;
     this.lastFrameStamp = 0;
+    this.attempts = 0;
     this.onHands = null;
     this.onStatus = null;
   }
@@ -23,25 +24,48 @@ export class HandTracker {
 
   async start() {
     if (this.running) return;
+
+    // A previous attempt may still hold the device: browsers report the camera as
+    // busy when the same page keeps a live track, so release before asking again.
+    this.stop();
+    this.attempts += 1;
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      const err = new Error('This browser will not open a camera on this address.');
+      err.name = 'InsecureContextError';
+      throw err;
+    }
+
     this.status('Requesting camera…');
     this.stream = await navigator.mediaDevices.getUserMedia({
       video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
       audio: false,
     });
-    this.video.srcObject = this.stream;
-    await this.video.play();
 
-    this.status('Loading hand tracking model…');
-    const vision = await import(`${WASM_PATH}/vision_bundle.mjs`);
-    const fileset = await vision.FilesetResolver.forVisionTasks(`${WASM_PATH}`);
-    this.landmarker = await vision.HandLandmarker.createFromOptions(fileset, {
-      baseOptions: { modelAssetPath: MODEL_PATH, delegate: 'GPU' },
-      runningMode: 'VIDEO',
-      numHands: 2,
-      minHandDetectionConfidence: 0.5,
-      minHandPresenceConfidence: 0.5,
-      minTrackingConfidence: 0.5,
-    });
+    // From here the camera is live. Any failure below must release it, or the user is
+    // left with an illuminated camera and a device the next attempt cannot reopen.
+    try {
+      this.video.srcObject = this.stream;
+      await this.video.play();
+
+      this.status('Loading hand tracking model…');
+      // A failed dynamic import is cached against its exact URL for the life of the
+      // document, so a plain retry after a transient network error would re-throw the
+      // same rejection forever. The query makes each attempt a distinct module.
+      const vision = await import(`${WASM_PATH}/vision_bundle.mjs?attempt=${this.attempts}`);
+      const fileset = await vision.FilesetResolver.forVisionTasks(`${WASM_PATH}`);
+      this.landmarker = await vision.HandLandmarker.createFromOptions(fileset, {
+        baseOptions: { modelAssetPath: MODEL_PATH, delegate: 'GPU' },
+        runningMode: 'VIDEO',
+        numHands: 2,
+        minHandDetectionConfidence: 0.5,
+        minHandPresenceConfidence: 0.5,
+        minTrackingConfidence: 0.5,
+      });
+    } catch (err) {
+      this.stop();
+      throw err;
+    }
 
     this.running = true;
     this.status('Tracking live');
@@ -53,7 +77,11 @@ export class HandTracker {
       for (const track of this.stream.getTracks()) track.stop();
       this.stream = null;
     }
+    if (this.video) this.video.srcObject = null;
+    this.landmarker = null;
+    this.lastVideoTime = -1;
     this.hands = [];
+    this.fps = 0;
   }
 
   poll() {

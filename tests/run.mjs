@@ -5,6 +5,7 @@ import path from 'node:path';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const suites = [
   'gestures.test.mjs',
+  'tracker.test.mjs',
   'models.test.mjs',
   'camera.test.mjs',
   'math.test.mjs',

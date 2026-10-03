@@ -75,44 +75,15 @@ function closeTo(actual, expected, m = '') {
   if (Math.abs(actual - expected) > 1e-9) throw new Error(`${m} ${actual} vs ${expected}`);
 }
 
-describe('quiz scores');
-
-it('accumulates correct and total across sessions', () => {
-  const p = new Progress(memoryStorage());
-  p.recordAnswer('heart', true);
-  p.recordAnswer('heart', false);
-  p.recordAnswer('heart', true);
-  const s = p.quizScore('heart');
-  eq(s.correct, 2, 'correct');
-  eq(s.total, 3, 'total');
-  closeTo(p.quizAccuracy('heart'), 2 / 3, 'accuracy');
-});
-
-it('quiz accuracy is zero before any answers', () => {
-  const p = new Progress(memoryStorage());
-  closeTo(p.quizAccuracy('heart'), 0, 'accuracy');
-});
-
-it('aggregates across models', () => {
-  const p = new Progress(memoryStorage());
-  p.recordAnswer('heart', true);
-  p.recordAnswer('dna', false);
-  const s = p.quizTotals();
-  eq(s.correct, 1, 'correct');
-  eq(s.total, 2, 'total');
-});
-
 describe('persistence');
 
 it('survives a reload from storage', () => {
   const storage = memoryStorage();
   const a = new Progress(storage);
   a.recordExplored('heart', 'a');
-  a.recordAnswer('heart', true);
 
   const b = new Progress(storage);
   eq(b.exploredCount('heart'), 1, 'explored restored');
-  eq(b.quizScore('heart').correct, 1, 'score restored');
 });
 
 it('recovers from corrupt storage instead of throwing', () => {
@@ -128,13 +99,11 @@ it('ignores unknown keys in stored data', () => {
   const storage = memoryStorage();
   storage.setItem('wondersnap:progress', JSON.stringify({
     version: 1,
-    models: { heart: { parts: ['a', 'ghost'], quiz: { correct: 5, total: 99 } } },
+    models: { heart: { parts: ['a', 'ghost'] } },
   }));
   const p = new Progress(storage);
   p.registerModel('heart', parts);
   eq(p.exploredCount('heart'), 1, 'ghost part pruned once the model is known');
-  p.recordExplored('heart', 'a');
-  eq(p.quizScore('heart').correct, 5, 'scores retained');
 });
 
 it('caps stored size', () => {
@@ -148,10 +117,8 @@ it('caps stored size', () => {
 it('reset clears everything', () => {
   const p = new Progress(memoryStorage());
   p.recordExplored('heart', 'a');
-  p.recordAnswer('heart', true);
   p.reset();
   eq(p.exploredCount('heart'), 0, 'explored cleared');
-  eq(p.quizScore('heart').total, 0, 'quiz cleared');
 });
 
 it('survives a storage backend that throws', () => {
@@ -171,7 +138,6 @@ it('summarises overall progress across models', () => {
   const p = new Progress(memoryStorage());
   const registry = [{ id: 'heart', parts }, { id: 'dna', parts }];
   p.recordExplored('heart', 'a');
-  p.recordAnswer('heart', true);
   p.syncRegistry(registry);
   const s = p.summary(registry);
   eq(s.modelsSeen, 1, 'models seen');

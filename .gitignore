@@ -1,3 +1,7 @@
 # MediaPipe Tasks Vision runtime + hand landmark model.
 # ~42 MB of third-party binaries, fetched by ./setup.sh
 vendor/
+
+# Dev dependencies are installed on demand for the browser test
+node_modules/
+package-lock.json

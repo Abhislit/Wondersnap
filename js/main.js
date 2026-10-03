@@ -5,7 +5,6 @@ import { Progress } from './core/progress.js';
 import { HandTracker } from './core/tracker.js';
 import { GestureEngine } from './core/gestures.js';
 import { MODELS, modelById } from './models/index.js';
-import { Quiz } from './ui/quiz.js';
 import { Narrator } from './ui/narrator.js';
 import { clamp, damp } from './core/math.js';
 
@@ -27,21 +26,14 @@ const panelCategory = document.getElementById('panelCategory');
 const panelBody = document.getElementById('panelBody');
 const panelClose = document.getElementById('panelClose');
 const btnNarration = document.getElementById('btnNarration');
-const btnQuiz = document.getElementById('btnQuiz');
+const btnExplode = document.getElementById('btnExplode');
 const btnCutaway = document.getElementById('btnCutaway');
-const quizPanel = document.getElementById('quizPanel');
-const quizPrompt = document.getElementById('quizPrompt');
-const quizOptions = document.getElementById('quizOptions');
-const quizScore = document.getElementById('quizScore');
-const quizFeedback = document.getElementById('quizFeedback');
-const quizNext = document.getElementById('quizNext');
 
 let stage;
 let tracker;
 let gestures;
 let quality;
 let progress;
-let quiz;
 let narrator;
 let running = false;
 let lastTime = performance.now();
@@ -53,6 +45,7 @@ let inspectPart = null;
 let pointedPart = null;
 let lastPinchMid = null;
 let pendingCapture = null;
+let rendererInfo = { renderer: 'unknown' };
 
 function setStatus(text, level = 'info') {
   statusEl.textContent = text;
@@ -104,7 +97,6 @@ function selectModel(index, fromUser = false) {
   closePanel();
   inspectPart = null;
   stage.setHighlight(-1);
-  if (quiz.active) startQuiz();
   if (fromUser) {
     stage.burst();
     narrator.say(`${model.name}. ${model.summary}`);
@@ -140,53 +132,17 @@ function closePanel() {
   stage.setHighlight(-1);
 }
 
-function startQuiz() {
-  if (!stage.parts.length) return;
-  quiz.start(stage.model, stage.parts);
-  quizPanel.hidden = false;
-  btnQuiz.classList.add('on');
-  closePanel();
-  setHint('Pick an answer below, or point at a card and pinch.');
-}
-
-function stopQuiz() {
-  quiz.stop();
-  quizPanel.hidden = true;
-  btnQuiz.classList.remove('on');
-  quizFeedback.textContent = '—';
-  setHint('Point at a part to read what it does.');
-}
-
-function renderQuiz(state) {
-  if (!state.question) return;
-  quizPrompt.textContent = state.question.prompt;
-  quizScore.textContent = `${state.score} / ${state.total}`;
-  quizOptions.innerHTML = '';
-  state.question.options.forEach((option, i) => {
-    const button = document.createElement('button');
-    button.textContent = option.label;
-    if (state.answered) {
-      button.disabled = true;
-      if (option.correct) button.classList.add('correct');
-      else if (option.label === state.result?.chosen) button.classList.add('wrong');
-    }
-    button.addEventListener('click', () => quiz.answer(i));
-    quizOptions.appendChild(button);
-  });
-  if (state.answered) {
-    quizFeedback.textContent = state.result.correct
-      ? `Correct — that is the ${state.result.correctLabel}.`
-      : `Not quite. That is the ${state.result.correctLabel}.`;
-  } else {
-    quizFeedback.textContent = state.result ? '' : 'Choose one.';
-  }
-}
-
+/**
+ * Landmark x is measured in the camera's own frame, so a hand on the left of the
+ * image reports a small x. The overlay draws the mirrored view, which is what the user
+ * expects to see themselves, so the pointer has to use the same frame or pointing
+ * selects whatever is on the opposite side of the model.
+ */
 function pointerFromHand(hand) {
   const nx = hand.center[0];
   const ny = hand.center[1];
   return {
-    x: nx * window.innerWidth,
+    x: (1 - nx) * window.innerWidth,
     y: ny * window.innerHeight,
   };
 }
@@ -225,7 +181,7 @@ function handleGestures(state) {
         stage.setHighlight(-1);
       }
     }
-    if (part && !quiz.active) showPanelThrottled(part);
+    if (part) showPanelThrottled(part);
     setHint(part
       ? `Pointing at ${part.name} — pinch to pull it out.`
       : 'Point at a part to read what it does.');
@@ -268,17 +224,7 @@ function wireGestureCallbacks() {
   };
 
   gestures.onOpenPalm = () => {
-    if (quiz.active) {
-      quiz.next();
-      return;
-    }
-    const didExplode = stage.toggleExplode();
-    if (didExplode) {
-      narrator.say('Exploded view.');
-      setHint('Exploded view — point at any part.');
-    } else {
-      selectModel(modelIndex + 1, true);
-    }
+    selectModel(modelIndex + 1, true);
   };
 
   gestures.onPinchStart = (hand) => {
@@ -302,9 +248,9 @@ function wireGestureCallbacks() {
     const delta = [
       hand.pinchMid.x - start.hand.pinchMid.x,
       hand.pinchMid.y - start.hand.pinchMid.y,
-      hand.pinchMid.z - start.pinchMid.z,
+      hand.pinchMid.z - start.hand.pinchMid.z,
     ];
-    stage.moveGrab([delta[0] * 8, -delta[1] * 8, delta[2] * 5]);
+    stage.moveGrab([-delta[0] * 8, -delta[1] * 8, delta[2] * 5]);
     start.hand = hand;
   };
 
@@ -411,21 +357,36 @@ function frame() {
 }
 
 async function startExperience() {
-  if (running) return;
+  // `running` tracks the render loop, which stays up even when the camera fails, so
+  // it cannot also gate retries. The camera's own state does that.
+  if (tracker?.running) return;
   gateStart.disabled = true;
   gateStart.textContent = 'Starting…';
+
+  // Everything below the camera start is one-time setup. A retry after a camera
+  // failure jumps straight to tracker.start() instead of rebuilding it all.
+  if (stage) {
+    await startCamera();
+    return;
+  }
+
   try {
-    const { gl, info } = createContext(canvas);
-    const budget = resolveBudget();
-    const pinned = new URLSearchParams(window.location.search).get('particles') !== null;
-    quality = new QualityController({
-      initialBudget: budget,
-      ceiling: budget,
-      pinned,
-    });
-    stage = new Stage(canvas, gl, budget);
-    progress = new Progress();
-    progress.syncRegistry(MODELS);
+    // The renderer is independent of the camera, so build it once. A retry after a
+    // camera failure must not stack up another Stage, context and Progress.
+    if (!stage) {
+      const { gl, info: glInfo } = createContext(canvas);
+      const budget = resolveBudget();
+      const pinned = new URLSearchParams(window.location.search).get('particles') !== null;
+      quality = new QualityController({
+        initialBudget: budget,
+        ceiling: budget,
+        pinned,
+      });
+      stage = new Stage(canvas, gl, budget);
+      progress = new Progress();
+      progress.syncRegistry(MODELS);
+      rendererInfo = glInfo;
+    }
     window.__stage = stage;
     window.__progress = progress;
     window.__showPanel = showPanel;
@@ -442,9 +403,6 @@ async function startExperience() {
       };
     });
     narrator = new Narrator();
-    quiz = new Quiz();
-    quiz.onChange = renderQuiz;
-    quiz.onSpeak = (text) => narrator.say(text);
 
     gestures = new GestureEngine();
     wireGestureCallbacks();
@@ -468,19 +426,47 @@ async function startExperience() {
     lastTime = performance.now();
     requestAnimationFrame(frame);
 
-    await tracker.start();
-    setStatus(`Tracking live · ${info.renderer}`);
-    gate.classList.add('hidden');
-    setHint('Snap your fingers to materialise the particles.');
+    await startCamera();
   } catch (err) {
     running = false;
-    gateStart.disabled = false;
-    gateStart.textContent = 'Retry';
-    gateError.hidden = false;
-    gateError.textContent = describeStartupFailure(err);
-    setStatus(describeStartupFailure(err), 'error');
-    console.error(err);
+    reportStartupFailure(err);
   }
+}
+
+/**
+ * The camera is the only part of startup that can fail transiently, so this is the
+ * only part a retry repeats. The tracker is deliberately reused across attempts: its
+ * attempt counter is what makes a retried module import reach the network again
+ * instead of replaying a cached rejection.
+ */
+async function startCamera() {
+  // The render loop is independent of the camera and keeps the model on screen behind
+  // the gate, so a camera failure must not stop it — otherwise a retry restores
+  // tracking but leaves a frozen canvas.
+  if (!running) {
+    running = true;
+    lastTime = performance.now();
+    requestAnimationFrame(frame);
+  }
+  try {
+    await tracker.start();
+  } catch (err) {
+    reportStartupFailure(err);
+    return;
+  }
+  gateError.hidden = true;
+  setStatus(`Tracking live · ${rendererInfo.renderer}`);
+  gate.classList.add('hidden');
+  setHint('Snap your fingers to materialise the particles.');
+}
+
+function reportStartupFailure(err) {
+  gateStart.disabled = false;
+  gateStart.textContent = 'Retry';
+  gateError.hidden = false;
+  gateError.textContent = describeStartupFailure(err);
+  setStatus(describeStartupFailure(err), 'error');
+  console.error(err);
 }
 
 /** Turns a raw DOMException into something a person can act on. */
@@ -495,6 +481,11 @@ function describeStartupFailure(err) {
   }
   if (name === 'NotReadableError') {
     return 'The camera is in use by another application. Close it and press Retry.';
+  }
+  if (name === 'InsecureContextError') {
+    return 'A camera is only available over https, or on localhost. You opened the app over '
+      + 'a plain http:// address on another machine, so the browser blocked the camera. '
+      + 'Open it on localhost, or put it behind an https tunnel, then reload.';
   }
   if (/webgl/i.test(err?.message || '')) {
     return `${err.message} Try a browser with WebGL2 and hardware acceleration enabled.`;
@@ -517,10 +508,20 @@ btnNarration.addEventListener('click', () => {
   if (on && stage?.model) narrator.say(stage.model.summary);
 });
 
-btnQuiz.addEventListener('click', () => {
-  if (quiz.active) stopQuiz();
-  else startQuiz();
-});
+function toggleExplodedView() {
+  const on = stage.toggleExplode();
+  btnExplode.classList.toggle('on', on);
+  btnExplode.textContent = on ? 'Collapse view' : 'Exploded view';
+  if (on) {
+    narrator.say('Exploded view.');
+    setHint('Exploded view — point at any part.');
+  } else {
+    setHint('Assembled.');
+  }
+  return on;
+}
+
+btnExplode.addEventListener('click', toggleExplodedView);
 
 btnCutaway.addEventListener('click', () => {
   stage.cutaway = !stage.cutaway;
@@ -528,13 +529,9 @@ btnCutaway.addEventListener('click', () => {
   setHint(stage.cutaway ? 'Cutaway on — half the model is sliced away.' : 'Cutaway off.');
 });
 
-quizNext.addEventListener('click', () => quiz.next());
 
 window.addEventListener('keydown', (event) => {
-  if (event.key === 'Escape') {
-    if (quiz.active) stopQuiz();
-    else closePanel();
-  }
+  if (event.key === 'Escape') closePanel();
 });
 
 window.addEventListener('resize', resize);

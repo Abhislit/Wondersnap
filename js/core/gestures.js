@@ -16,15 +16,15 @@ const FINGERS = [
 ];
 
 export const DEFAULT_TUNING = Object.freeze({
-  STRAIGHT_RATIO: 1.06,
-  REACH_RATIO: 1.3,
-  PINCH_DISTANCE: 0.45,
+  STRAIGHT_RATIO: 1.08,
+  REACH_RATIO: 1.2,
+  PINCH_DISTANCE: 0.5,
 
   HISTORY_TTL_MS: 1200,
   HISTORY_LIMIT: 48,
   SNAP_SAMPLES: 7,
   SNAP_MIN_SPAN_MS: 22,
-  SNAP_TIGHT_RATIO: 0.34,
+  SNAP_TIGHT_RATIO: 0.38,
   SNAP_MIN_RATE: 0.0018,
   SNAP_COOLDOWN_MS: 550,
 
@@ -120,11 +120,12 @@ export function analyzeHand(handedness, lm, tuning = DEFAULT_TUNING) {
 
   const extendedCount = fingers.filter((f) => f.name !== 'thumb' && f.extended).length;
   const othersCurled = ['middle', 'ring', 'pinky'].every((n) => byName[n].curl);
+  const thumbOpen = byName.thumb.extended;
 
   const pinch = pinchDistance < tuning.PINCH_DISTANCE;
   const fist = !pinch && extendedCount === 0 && byName.index.curl;
   const point = !pinch && !fist && byName.index.extended && othersCurled;
-  const openPalm = !pinch && !fist && extendedCount >= 4;
+  const openPalm = !pinch && !fist && thumbOpen && extendedCount >= 3;
 
   return {
     landmarks: lm,
