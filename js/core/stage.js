@@ -31,7 +31,20 @@ export class Stage {
     const exposureParam = Number.parseFloat(
       new URLSearchParams(window.location.search).get('exposure'),
     );
-    this.exposureBase = Number.isFinite(exposureParam) ? exposureParam : 1200;
+    this.exposureBase = Number.isFinite(exposureParam) ? exposureParam : 700;
+    const params = new URLSearchParams(window.location.search);
+    const maxPoint = Number.parseFloat(params.get('maxpoint'));
+    this.maxPointSize = Number.isFinite(maxPoint) ? maxPoint : 18;
+    const pointGain = Number.parseFloat(params.get('point'));
+    this.pointGain = Number.isFinite(pointGain) ? pointGain : 520;
+    const num = (key, fallback) => {
+      const v = Number.parseFloat(params.get(key));
+      return Number.isFinite(v) ? v : fallback;
+    };
+    this.coreExp = num('core', 1.6);
+    this.haloExp = num('haloexp', 1.0);
+    this.haloWeight = num('halo', 0.30);
+    this.hotBoost = num('hot', 0.0);
     this.system = new ParticleSystem(gl, budget);
     this.system.seedFromSphere(4.2);
     this.camera = new Camera();
@@ -123,7 +136,7 @@ export class Stage {
     this.camera.maxDistance = this.frameDistance(1) * 1.4;
     this.camera.setDistance(this.frameDistance(this.explodeTarget));
     this.camera.distance = this.camera.targetDistance * 1.6;
-    this.pointScale = radius * 520;
+    this.pointScale = radius * this.pointGain;
 
     this.morph = 0;
     this.morphTarget = 1;
@@ -372,6 +385,11 @@ export class Stage {
       energyFloor: this.energyFloor,
       sizeBoost: this.sizeBoost,
       exposure: this.exposure,
+      maxPointSize: this.maxPointSize,
+      coreExp: this.coreExp,
+      haloExp: this.haloExp,
+      haloWeight: this.haloWeight,
+      hotBoost: this.hotBoost,
       cutaway: this.cutaway,
       cutPlaneN: this.cutPlaneNormal(),
       cutPlaneD: this.cutPlaneOffset(),

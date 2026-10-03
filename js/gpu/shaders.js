@@ -151,6 +151,11 @@ uniform float uEnergyFloor;
 uniform float uSizeBoost;
 uniform float uTexSize;
 uniform float uExposure;
+uniform float uMaxPointSize;
+uniform float uCoreExp;
+uniform float uHaloExp;
+uniform float uHaloWeight;
+uniform float uHotBoost;
 
 out vec3 vColor;
 out float vEnergy;
@@ -169,7 +174,7 @@ void main() {
   gl_Position = clip;
 
   float dist = max(clip.w, 0.001);
-  gl_PointSize = clamp(uPointScale * colorData.a * (1.0 + uSizeBoost) / dist, 1.0, 13.0);
+  gl_PointSize = clamp(uPointScale * colorData.a * (1.0 + uSizeBoost) / dist, 1.0, uMaxPointSize);
 
   vColor = colorData.rgb;
   vEnergy = posData.w;
@@ -189,6 +194,10 @@ in float vEnergy;
 in float vDiscarded;
 in float vFade;
 uniform float uExposure;
+uniform float uCoreExp;
+uniform float uHaloExp;
+uniform float uHaloWeight;
+uniform float uHotBoost;
 layout(location = 0) out vec4 fragColor;
 
 void main() {
@@ -198,11 +207,11 @@ void main() {
   float r2 = dot(c, c);
   if (r2 > 1.0) discard;
 
-  float core = pow(1.0 - r2, 4.5);
-  float halo = pow(1.0 - r2, 1.8) * 0.18;
+  float core = pow(1.0 - r2, uCoreExp);
+  float halo = pow(1.0 - r2, uHaloExp) * uHaloWeight;
 
   vec3 rgb = vColor * (core * 2.4 + halo);
-  rgb += vec3(core * core * 1.1);
+  rgb += vec3(core * core * uHotBoost);
   float alpha = (core + halo) * vFade * clamp(vEnergy, 0.0, 1.6) * uExposure;
 
   fragColor = vec4(rgb * alpha, alpha);

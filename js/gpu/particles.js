@@ -214,6 +214,11 @@ export class ParticleSystem {
     gl.uniform1f(u.uEnergyFloor, state.energyFloor);
     gl.uniform1f(u.uSizeBoost, state.sizeBoost);
     gl.uniform1f(u.uExposure, state.exposure);
+    gl.uniform1f(u.uMaxPointSize, state.maxPointSize);
+    gl.uniform1f(u.uCoreExp, state.coreExp);
+    gl.uniform1f(u.uHaloExp, state.haloExp);
+    gl.uniform1f(u.uHaloWeight, state.haloWeight);
+    gl.uniform1f(u.uHotBoost, state.hotBoost);
     gl.uniform1f(u.uCutaway, state.cutaway ? 1 : 0);
     gl.uniform3fv(u.uCutPlaneN, state.cutPlaneN);
     gl.uniform1f(u.uCutPlaneD, state.cutPlaneD);

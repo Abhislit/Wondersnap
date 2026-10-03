@@ -179,7 +179,28 @@ valves and septum completely.
 | Parameter | Default | Purpose |
 |---|---|---|
 | `?particles=N` | `240000` | Particle budget, clamped to 4000–240000. **Pins the budget**, disabling auto-quality |
-| `?exposure=N` | `170` | Brightness, scaled down as `N / budget` |
+| `?exposure=N` | `700` | Brightness, scaled down as `N / budget` |
+| `?maxpoint=N` | `18` | Maximum particle sprite size in pixels |
+| `?point=N` | `520` | Sprite size gain; multiplied by the model radius |
+| `?core=N` | `1.6` | Sprite core falloff exponent. **Lower is softer/wider** |
+| `?haloexp=N` | `1.0` | Outer halo falloff exponent |
+| `?halo=N` | `0.30` | Outer halo brightness weight |
+| `?hot=N` | `0` | White hot-centre boost. `0` keeps particles one colour |
+
+### Making particles look right
+
+Blur and speckle are both sprite-profile problems, and they pull in opposite directions. What
+matters is each sprite's radial brightness profile:
+
+- A **flat plateau** out to the sprite edge — the original look — means overlapping sprites sum to
+  uniform fog. Blurry.
+- All the light confined to a few central pixels means you see isolated hard dots. Pixelated.
+- A **broad, monotone** falloff fills the sprite so neighbours merge, then decays cleanly.
+
+`?core=` is the main lever. Raise it for crisper dots, lower it for a softer glow. `?maxpoint=`
+controls how much area each particle covers.
+
+Verified at the full 240k budget: mean luma 64, relative contrast 0.19, no gaps, no clipping.
 
 By default the budget adapts to hold 60fps (`js/core/quality.js`), reacting only after several
 seconds of sustained slowness so it never thrashes. Additive blending couples brightness to
