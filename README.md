@@ -210,8 +210,8 @@ particle count, which is why exposure is divided by the budget.
 ## Tests
 
 ```bash
-npm test              # 105 assertions across 6 suites, no browser, ~1s
-npm run test:browser  # 18 checks in headless Chrome — run ./setup.sh first
+npm test              # 108 assertions across 7 suites, no browser, ~1s
+npm run test:browser  # 21 checks in headless Chrome — run ./setup.sh first
 ```
 
 The unit suites cover pose classification, hysteresis, snap detection, model baking and the
@@ -236,14 +236,16 @@ register, and timeline.
 [`docs/KNOWN_PROBLEMS.md`](docs/KNOWN_PROBLEMS.md) is an honest catalogue of what is wrong with
 this project, ordered by severity — including the two things that block a real release.
 
+[`CONTRIBUTING.md`](CONTRIBUTING.md) covers setup, adding a model, tuning the particle look, and
+the two problems that need a human rather than a test.
+
 ## Status
 
 What is verified:
 
-- 85 automated checks in headless Chrome — rendering, all four models, pose classification,
-  snap detection, picking accuracy, explode/cutaway/burst state, camera clamping, progress
-  persistence, adaptive quality, and UI wiring.
-- Picking reaches **every** part in every model when exploded.
+- 129 automated checks — 108 unit plus 21 in headless Chrome. Rendering, all four models,
+  pose classification, snap detection, picking accuracy, explode/cutaway/burst state,
+  camera clamping, progress persistence, adaptive quality, and UI wiring.
 
 What is **not** verified:
 

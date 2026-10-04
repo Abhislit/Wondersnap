@@ -146,7 +146,7 @@ and a teaching tool.
 
 ### m1. 143 lines of dead code in `js/models/shapes.js`
 
-Fourteen exported samplers; **three are used** — `spherePoint`, `boxBeamPoint`, `combine`. The
+Thirteen exported samplers; **three are used** — `spherePoint`, `boxBeamPoint`, `combine`. The
 other eleven (`shellPoint`, `torusPoint`, `tubePoint`, `discPoint`, `boxPoint`, `boxShellPoint`,
 `cylinderPoint`, `lathePoint`, `curvePoint`, `mirrorX`) are unreferenced.
 

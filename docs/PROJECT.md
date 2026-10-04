@@ -175,7 +175,7 @@ is what separates a demo from a product.
 | 2.2 | Commit the test suite | **Done** — 105 unit assertions across 6 suites, plus a browser suite |
 | 2.3 | `package.json` with `npm test` | **Done** — runtime stays dependency-free |
 | 2.4 | GitHub Actions CI | **Done** — `.github/workflows/ci.yml`, 3 jobs |
-| 2.5 | `CONTRIBUTING.md` | **Not started** — the README section covers model authoring |
+| 2.5 | `CONTRIBUTING.md` | **Done** — setup, model authoring, look tuning, and the two problems only a human can resolve |
 | 2.6 | Pin the MediaPipe version in one place | **Done** — `setup.sh` and `tests/browser.test.mjs` both use 1.0.1 |
 
 ### Phase 3 — The remaining 25 models *(~20–30 h)*
