@@ -14,6 +14,7 @@ const octx = overlay.getContext('2d');
 const video = document.getElementById('cam');
 const gate = document.getElementById('gate');
 const gateStart = document.getElementById('gateStart');
+const gateExplore = document.getElementById('gateExplore');
 const gateError = document.getElementById('gateError');
 const btnStart = document.getElementById('btnStart');
 const modelTabs = document.getElementById('modelTabs');
@@ -46,6 +47,8 @@ let pointedPart = null;
 let lastPinchMid = null;
 let pendingCapture = null;
 let rendererInfo = { renderer: 'unknown' };
+const activePointers = new Map();
+let pinchDistance = 0;
 
 function setStatus(text, level = 'info') {
   statusEl.textContent = text;
@@ -127,10 +130,73 @@ function refreshCompletion() {
 }
 
 function closePanel() {
+  if (!stage) return;
   inspectPart = null;
   panel.hidden = true;
   stage.setHighlight(-1);
 }
+
+function pointerDistance() {
+  const points = [...activePointers.values()];
+  if (points.length < 2) return 0;
+  return Math.hypot(points[0].x - points[1].x, points[0].y - points[1].y);
+}
+
+canvas.addEventListener('pointerdown', (event) => {
+  if (!stage || (event.pointerType === 'mouse' && event.button !== 0)) return;
+  canvas.setPointerCapture(event.pointerId);
+  activePointers.set(event.pointerId, {
+    x: event.clientX,
+    y: event.clientY,
+    startX: event.clientX,
+    startY: event.clientY,
+    moved: false,
+  });
+  if (activePointers.size === 2) pinchDistance = pointerDistance();
+  event.preventDefault();
+});
+
+canvas.addEventListener('pointermove', (event) => {
+  const pointer = activePointers.get(event.pointerId);
+  if (!pointer || !stage) return;
+  const dx = event.clientX - pointer.x;
+  const dy = event.clientY - pointer.y;
+  pointer.x = event.clientX;
+  pointer.y = event.clientY;
+
+  if (activePointers.size >= 2) {
+    const nextDistance = pointerDistance();
+    if (pinchDistance > 0 && nextDistance > 0) stage.camera.zoom(pinchDistance / nextDistance);
+    pinchDistance = nextDistance;
+    for (const active of activePointers.values()) active.moved = true;
+  } else {
+    if (Math.hypot(pointer.x - pointer.startX, pointer.y - pointer.startY) > 4) {
+      pointer.moved = true;
+    }
+    if (pointer.moved) stage.camera.orbit(-dx * 0.006, -dy * 0.006);
+  }
+  event.preventDefault();
+});
+
+function finishPointer(event) {
+  const pointer = activePointers.get(event.pointerId);
+  if (!pointer) return;
+  if (activePointers.size === 1 && !pointer.moved && stage) {
+    const part = stage.pick(event.clientX, event.clientY);
+    if (part) showPanel(part);
+    else closePanel();
+  }
+  activePointers.delete(event.pointerId);
+  if (activePointers.size < 2) pinchDistance = 0;
+}
+
+canvas.addEventListener('pointerup', finishPointer);
+canvas.addEventListener('pointercancel', finishPointer);
+canvas.addEventListener('wheel', (event) => {
+  if (!stage) return;
+  stage.camera.zoom(Math.exp(event.deltaY * 0.001));
+  event.preventDefault();
+}, { passive: false });
 
 /**
  * Landmark x is measured in the camera's own frame, so a hand on the left of the
@@ -152,11 +218,13 @@ function handleGestures(state) {
 
   if (!primary) {
     pointedPart = null;
-    if (inspectPart) {
-      inspectPart = null;
-      closePanel();
+    if (tracker?.running) {
+      if (inspectPart) {
+        inspectPart = null;
+        closePanel();
+      }
+      setHint('Hold your hand up to the camera.');
     }
-    setHint('Hold your hand up to the camera.');
     return;
   }
 
@@ -356,7 +424,7 @@ function frame() {
   requestAnimationFrame(frame);
 }
 
-async function startExperience() {
+async function startExperience(withCamera = true) {
   // `running` tracks the render loop, which stays up even when the camera fails, so
   // it cannot also gate retries. The camera's own state does that.
   if (tracker?.running) return;
@@ -366,7 +434,8 @@ async function startExperience() {
   // Everything below the camera start is one-time setup. A retry after a camera
   // failure jumps straight to tracker.start() instead of rebuilding it all.
   if (stage) {
-    await startCamera();
+    if (withCamera) await startCamera();
+    else enterCameraFreeMode();
     return;
   }
 
@@ -426,11 +495,18 @@ async function startExperience() {
     lastTime = performance.now();
     requestAnimationFrame(frame);
 
-    await startCamera();
+    if (withCamera) await startCamera();
+    else enterCameraFreeMode();
   } catch (err) {
     running = false;
     reportStartupFailure(err);
   }
+}
+
+function enterCameraFreeMode() {
+  gate.classList.add('hidden');
+  setStatus('Camera off · mouse and touch controls');
+  setHint('Drag to orbit · scroll or pinch to zoom · click a part to inspect.');
 }
 
 /**
@@ -466,7 +542,8 @@ function reportStartupFailure(err) {
   gateError.hidden = false;
   gateError.textContent = describeStartupFailure(err);
   setStatus(describeStartupFailure(err), 'error');
-  console.error(err);
+  if (!['NotAllowedError', 'NotFoundError', 'NotReadableError', 'OverconstrainedError', 'InsecureContextError']
+    .includes(err?.name)) console.error(err);
 }
 
 /** Turns a raw DOMException into something a person can act on. */
@@ -497,10 +574,12 @@ function describeStartupFailure(err) {
 }
 
 gateStart.addEventListener('click', startExperience);
+gateExplore.addEventListener('click', () => startExperience(false));
 btnStart.addEventListener('click', startExperience);
 panelClose.addEventListener('click', closePanel);
 
 btnNarration.addEventListener('click', () => {
+  if (!narrator) return;
   const on = !narrator.enabled;
   narrator.setEnabled(on);
   btnNarration.textContent = on ? 'Narration on' : 'Narration off';
@@ -524,6 +603,7 @@ function toggleExplodedView() {
 btnExplode.addEventListener('click', toggleExplodedView);
 
 btnCutaway.addEventListener('click', () => {
+  if (!stage) return;
   stage.cutaway = !stage.cutaway;
   btnCutaway.classList.toggle('on', stage.cutaway);
   setHint(stage.cutaway ? 'Cutaway on — half the model is sliced away.' : 'Cutaway off.');

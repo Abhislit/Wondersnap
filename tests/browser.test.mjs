@@ -256,6 +256,61 @@ async function runGestureSuite() {
   }
 }
 
+async function runCameraFreeSuite() {
+  const page = await browser.newPage();
+  await page.setViewport({ width: 640, height: 480, deviceScaleFactor: 1 });
+  page.on('pageerror', (e) => errors.push(`pageerror: ${e.message}`));
+  page.on('console', (m) => { if (m.type() === 'error') errors.push(`console: ${m.text()}`); });
+  await page.evaluateOnNewDocument(() => {
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: {
+        getUserMedia: async () => {
+          const error = new Error('camera permission denied');
+          error.name = 'NotAllowedError';
+          throw error;
+        },
+      },
+    });
+  });
+  await page.goto(`http://localhost:${PORT}/index.html?particles=${PARTICLES}`, { waitUntil: 'networkidle2' });
+  try {
+    await page.click('#gateStart');
+    await page.waitForFunction(() => !document.getElementById('gateError').hidden);
+    const cameraError = await page.$eval('#gateError', (e) => e.textContent);
+    await page.click('#gateExplore');
+    await page.waitForFunction(() => document.getElementById('gate').classList.contains('hidden'));
+    await page.waitForFunction(() => window.__stage.parts.length > 0);
+    await page.evaluate(() => { window.__stage.idleSpin = 0; });
+
+    const before = await page.evaluate(() => ({
+      yaw: window.__stage.camera.yaw,
+      distance: window.__stage.camera.targetDistance,
+    }));
+    await page.mouse.move(320, 240);
+    await page.mouse.down();
+    await page.mouse.move(370, 270, { steps: 4 });
+    await page.mouse.up();
+    await page.mouse.wheel({ deltaY: -160 });
+    await page.click('#btnExplode');
+    const exploded = await page.evaluate(() => window.__stage.explodeTarget);
+    await page.click('#btnCutaway');
+    await page.click('#modelTabs button:nth-child(2)');
+
+    const after = await page.evaluate(() => ({
+      yaw: window.__stage.camera.yaw,
+      distance: window.__stage.camera.targetDistance,
+      explode: window.__stage.explodeTarget,
+      cutaway: window.__stage.cutaway,
+      model: window.__stage.model.id,
+      gateHidden: document.getElementById('gate').classList.contains('hidden'),
+    }));
+    return { cameraError, before, after, exploded };
+  } finally {
+    await close(page);
+  }
+}
+
 const pass = [];
 const fail = [];
 const check = (name, ok, detail = '') => {
@@ -413,6 +468,18 @@ try {
   check('pinch-drag does not throw', gestures.dragError === null, gestures.dragError || 'clean');
   check('pinch-drag moves the part with the hand', gestures.dragFollows === true,
     `worldDx=${gestures.dragWorldDx} partFollowsHand=${gestures.dragFollows}`);
+
+  const cameraFree = await runCameraFreeSuite();
+  check('camera denial still offers model-only mode', /permission was denied/i.test(cameraFree.cameraError)
+      && cameraFree.after.gateHidden,
+    cameraFree.cameraError);
+  check('mouse orbit and wheel zoom work without a camera',
+    Math.abs(cameraFree.after.yaw - cameraFree.before.yaw) > 0.1
+      && cameraFree.after.distance < cameraFree.before.distance,
+    `yawDelta=${(cameraFree.after.yaw - cameraFree.before.yaw).toFixed(2)}`);
+  check('model, explode, and cutaway controls work without a camera',
+    cameraFree.after.model === 'dna' && cameraFree.exploded === 1 && cameraFree.after.cutaway,
+    JSON.stringify({ ...cameraFree.after, exploded: cameraFree.exploded }));
 
   check('no runtime errors', errors.length === 0, [...new Set(errors)].join(' | ') || 'clean');
 } catch (err) {

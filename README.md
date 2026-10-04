@@ -30,7 +30,9 @@ The camera requires a secure context. `localhost` counts; a LAN IP does not, so 
 | Pinch and pull | Drag a component out for a closer look |
 
 Everything is also reachable by mouse, for when a hand is not available: the buttons in the
-top bar, and the model tabs. `Esc` closes the inspector.
+top bar and the model tabs. Drag the scene to orbit, scroll or pinch to zoom, and click a part to
+inspect it. Choose **Explore without camera** to use the full 3D scene without webcam permission.
+`Esc` closes the inspector.
 
 ## How it works
 
@@ -228,8 +230,11 @@ first thing to fix.
 
 ## Project document
 
-[`docs/PROJECT.md`](docs/PROJECT.md) covers current status, the full remaining-work plan, risk
+[`docs/PROJECT.md`](docs/PROJECT.md) covers current status, the remaining-work plan, risk
 register, and timeline.
+
+[`docs/KNOWN_PROBLEMS.md`](docs/KNOWN_PROBLEMS.md) is an honest catalogue of what is wrong with
+this project, ordered by severity — including the two things that block a real release.
 
 ## Status
 

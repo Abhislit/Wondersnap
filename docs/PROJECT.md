@@ -1,5 +1,8 @@
 # WonderSnap — Project Document
 
+> For an honest catalogue of defects rather than a build plan, see
+> [`KNOWN_PROBLEMS.md`](KNOWN_PROBLEMS.md).
+
 Status, remaining work, and everything needed to finish this.
 
 Last updated: 1 October 2026

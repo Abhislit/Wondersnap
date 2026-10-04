@@ -1,0 +1,242 @@
+# Known Problems in WonderSnap
+
+An honest catalogue of what is wrong with this project, ordered by how much it hurts.
+
+Last reviewed: 3 October 2026 · commit `bd8d585`
+
+This document is deliberately uncomfortable. A project that lists its problems is more useful
+than one that claims to be finished. Where a problem is measurable, the measurement is given.
+Where it is not measurable, it says so rather than guessing.
+
+Related: [`PROJECT.md`](PROJECT.md) for the build plan and timeline.
+
+---
+
+## Severity key
+
+| | Meaning |
+|---|---|
+| **Critical** | The project's premise depends on this working. |
+| **Major** | Users will notice, or a contributor will hit it. |
+| **Minor** | Rough edges, cleanup debt. |
+
+---
+
+## Critical
+
+### C1. The gestures have never touched a human hand
+
+Every threshold in `js/core/gestures.js` was derived from anatomical ratios and validated against
+synthetic landmarks — coordinates I generated to resemble a hand, not a recording of one.
+
+```
+STRAIGHT_RATIO: 1.08    finger extension, tip vs PIP joint
+REACH_RATIO: 1.20       finger extension, tip vs MCP joint
+PINCH_DISTANCE: 0.50    thumb-index, as a fraction of palm width
+SNAP_TIGHT_RATIO: 0.38  thumb-index must close below this
+SNAP_MIN_RATE: 0.0018   closing rate per millisecond
+```
+
+Every automated test that "proves" gestures work is testing a synthetic hand against itself. The
+suite confirms the code does what it was written to do. It says nothing about whether a person
+can trigger it.
+
+**Why it matters:** the entire pitch is "control it with your bare hands". If the fist threshold
+is 8% too tight, nobody ever assembles the model, and there is no fallback that feels like the
+product.
+
+**What would resolve it:** the harness exists (`tools/tune.html`). Someone needs to hold a hand in
+front of a webcam for twenty minutes and record a confusion matrix. Roughly half a day. See §4.3
+of `PROJECT.md`.
+
+---
+
+### C2. The 240,000-particle budget has never run on a GPU
+
+Every measurement in this repository was taken under SwiftShader — CPU software rendering —
+because no GPU was available. At that point the app takes ~40 seconds to reach "Tracking live",
+and framerate is not a meaningful number.
+
+The particle pipeline is written for the GPU (float textures, ping-ponged FBOs, MRT) and the
+architecture is sound. But "240k at 60fps" is a design target, not a measured result.
+
+**Known risk:** whether 240k is viable at all on the hardware it will actually run on. The adaptive
+quality controller in `js/core/quality.js` exists precisely because this is unknown, and it will
+silently reduce quality to 4k on a weak machine rather than admit it cannot hold framerate.
+
+**What would resolve it:** open the app on three machines — discrete, integrated, laptop — and
+record the fps counter at the default budget.
+
+---
+
+## Major
+
+### M1. Four models exist. The project claims twenty-nine
+
+| Category | Done | Remaining |
+|---|---|---|
+| Wonders of the World | 1 | 6 |
+| Human Anatomy | 1 | 4 |
+| Biology | 1 | 3 |
+| Engines & Vehicles | 1 | 4 |
+| Machines | 0 | 4 |
+| Interactive mechanical systems | 0 | 4 |
+
+25 models outstanding, roughly 20–30 hours. The architecture makes them mostly mechanical —
+picking, exploded view and narration all derive from the part list — but "mostly mechanical" is
+not "done", and rushed models would undercut the four good ones.
+
+### M2. Only Chrome has ever run this
+
+No Safari, no Firefox, no mobile browser. Two specific unknowns:
+
+- `EXT_color_buffer_float` and `EXT_color_buffer_half_float` availability differ across Safari
+  versions. Missing means no simulation at all; the app throws a readable error rather than
+  degrading.
+- Safari caps WebGL2 texture and buffer sizes well below desktop. The particle system allocates
+  several 32-bit float textures sized to `sqrt(particles)`, which is modest, but this is untested.
+
+The camera also requires a secure context, so `localhost` works and a LAN IP does not. That is
+correct behaviour but it makes casual "try it on my phone" testing harder than it needs to be.
+
+### M3. No gesture switches models
+
+Open palm used to advance to the next model. It was unbound because an incidental open hand —
+reaching for a mug, waving — yanked the scene away mid-inspection.
+
+The underlying problem is sensitivity, not the binding. The correct fix is to keep the binding and
+require the pose to hold considerably longer than `ENTER_FRAMES: 3`, and to require a *deliberate*
+posture (thumb extended, fingers spread) rather than any open hand. `PALM_COOLDOWN_MS` is the
+knob.
+
+Right now the tabs are the only route, which makes a hands-only session feel incomplete.
+
+### M4. `pick()` is O(n) every frame while pointing
+
+Measured: **193 µs per call** over 5,000 samples, on the CPU, on every frame the pointer gesture
+is active. At 60 fps that is 1.2% of a frame budget — currently fine.
+
+It matters because the cost is linear in `PICK_SAMPLE` and that constant will want raising for
+better precision, and because `pick()` allocates nothing but does the full scan every time
+regardless of how small the tolerance is. A uniform grid over the point cloud would make it
+effectively constant.
+
+### M5. Adaptive quality rebuilds geometry, and can oscillate
+
+`Stage.setBudget()` constructs a new `ParticleSystem`, re-seeds the cloud and re-bakes the whole
+model. That is the expensive operation the controller exists to avoid, and it happens on the main
+thread.
+
+On a genuinely marginal machine — fast enough to upgrade, then too slow to hold the upgrade — the
+controller can cycle between two budgets indefinitely. It only upgrades when frame time is under
+55% of target, which makes oscillation unlikely, but the failure mode is a visible hitch loop
+rather than a smooth degradation.
+
+### M6. Silent
+
+No audio whatsoever. Engine models in particular are close to pointless without the sound of
+something running; a four-stroke engine model is a diagram of motion, not an engine.
+
+Deferred by decision, not oversight — see `PROJECT.md` §5.2. But it is a real gap between this
+and a teaching tool.
+
+---
+
+## Minor
+
+### m1. 143 lines of dead code in `js/models/shapes.js`
+
+Fourteen exported samplers; **three are used** — `spherePoint`, `boxBeamPoint`, `combine`. The
+other eleven (`shellPoint`, `torusPoint`, `tubePoint`, `discPoint`, `boxPoint`, `boxShellPoint`,
+`cylinderPoint`, `lathePoint`, `curvePoint`, `mirrorX`) are unreferenced.
+
+They were written speculatively as a palette for future models, which is exactly the kind of
+"scaffolding for later" that rots. Either they get used by the next five models or they go.
+
+`CATEGORIES` in `js/models/index.js` is exported and unused — the category filter was never built.
+
+### m2. `transformPoint` ignores `w`
+
+`js/core/math.js` — correct for affine transforms, silently wrong for a projection. Unprojecting
+NDC coordinates with it produces garbage roughly 50 units from where it should.
+
+It is dead code today (picking projects screen-space instead), and a correct `unproject` exists
+right next to it. A future contributor will reach for the wrong one. The fix is either deleting
+it or renaming it to `transformPointAffine`.
+
+### m3. Progress is recorded but never surfaced
+
+`js/core/progress.js` tracks which parts have been explored and persists it. The only thing the
+user sees is "3 of 9 explored" in the inspector when a part happens to be open. There is no
+overall completion view, no model list showing what's unexplored, no reason to return.
+
+For a learning tool the record exists and nothing reads it.
+
+### m4. Voice availability varies
+
+Narration depends on `speechSynthesis`. If the platform has no voices installed, `say()` silently
+does nothing — the UI still shows "Narration on". Linux browsers without `speech-dispatcher`
+installed are the common case.
+
+### m5. FOV is hardcoded in two places
+
+50° appears in `js/core/math.js:162` and again in `js/core/stage.js:173` (framing maths). They
+must agree or the explode framing drifts from the actual projection. They agree today because
+nobody has changed one.
+
+### m6. Brightness is coupled to particle count
+
+`exposure = 700 / budget`. Correct, and the reason brightness stays stable across budgets — but
+it means the constant is only right for the current sprite falloff. Change the falloff and the
+tuning is wrong everywhere at once.
+
+### m7. Reduced-motion support is partial
+
+`prefers-reduced-motion` disables idle spin and quarters turbulence. It does not touch the burst
+on load, the explode transition, or the pinch-grab spring — all of which are large motion.
+
+---
+
+## Test coverage: what the suite does and does not prove
+
+108 unit assertions, 21 browser checks, both in CI. Worth being precise about what that buys.
+
+**Proven:**
+- Pose classification is internally consistent and mutually exclusive against synthetic landmarks
+- Hysteresis and cooldown suppress repeat firing and flicker
+- Snap detection rejects slow closes and held-open hands
+- Every part of every model is pickable in the exploded view — 100% self-hit accuracy
+- Particle geometry bakes deterministically with no NaN, budget fully allocated, bounds sane
+- Matrix maths round-trips; unprojection is correct
+- Progress survives a reload and recovers from corrupt storage
+- Particles reach the framebuffer; brightness stays in a sane range
+- Adaptive quality never exceeds its bounds and does not thrash
+- A denied `localStorage` does not break boot (verified, 2026-10-03)
+
+**Not proven:**
+- That any gesture is recognisable by a human hand
+- That the app is usable at any framerate, on any GPU
+- That it works outside Chrome
+- That the models look like what they claim to be. The heart and jet engine are procedural
+  approximations checked for *structure* — named parts, reachable geometry — not for anatomical
+  or mechanical accuracy. Nobody has compared them against a reference image.
+
+That last gap is uncomfortable: the models pass every test while being, in places, a
+simplification. A test that asserts "the aorta exists" is satisfied by a tube.
+
+---
+
+## Summary
+
+| Severity | Count | Blocking release? |
+|---|---|---|
+| Critical | 2 | Yes |
+| Major | 6 | Yes |
+| Minor | 7 | No |
+
+The two critical problems share a root cause: **everything has been verified against synthetic
+or absent inputs.** No real hand, no real GPU, no second browser. The code is written defensively
+around that — adaptive quality, readable errors, a tuning harness — but the confidence is
+borrowed from tests that cannot see the thing users actually see.
+
+Fixing C1 and C2 is roughly a day of work. Fixing M1 is three weeks.
