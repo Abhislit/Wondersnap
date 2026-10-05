@@ -153,11 +153,13 @@ while the sprites did not, so coverage collapsed.
 
 Measured uncovered pixels, heart, 200k particles:
 
-| Zoom | 640×480 before | 640×480 after | 1920×1080 before | 1920×1080 after |
+| Zoom | 640×480 before | after | 1920×1080 before | after |
 |---|---|---|---|---|
-| 1× | 0.0% | 0.5% | 0.3% | — |
-| 2× | 0.6% | 2.5% | 28.6% | — |
+| 1× | 0.0% | 0.5% | 0.3% | 0.4% |
+| 2× | 0.6% | 2.5% | 28.6% | 1.9% |
 | 4× | 43.1% | 6.9% | 86.4% | — |
+
+Mean luminance at 1920×1080 also stopped collapsing: 28.6 → 54.3 at 1×, and 14.6 → 52.0 at 2×.
 
 Sprite size is now derived from the projection, so it scales with zoom and viewport. Note the
 residual 6.9% at 4× zoom, where the model overflows the viewport and part of the measured region

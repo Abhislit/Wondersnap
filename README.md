@@ -213,11 +213,14 @@ previously did not happen: the shader asked for 116–743px and was clamped to 1
 
 Verified at 640×480, heart, 200k particles — uncovered pixels and mean luminance:
 
-| Zoom | Gap before | Gap after | Mean before | Mean after |
+| Zoom | 640×480 gap | mean | 1920×1080 gap | mean |
 |---|---|---|---|---|
-| 1× | 0.0% | 0.5% | 72 | 58 |
-| 2× | 0.6% | 2.5% | 30 | 48 |
-| 4× | 43.1% | 6.9% | 14 | 42 |
+| 1× | 0.0% → **0.5%** | 72 → 58 | 0.3% → **0.4%** | 29 → 54 |
+| 2× | 0.6% → **2.5%** | 30 → 48 | 28.6% → **1.9%** | 15 → 52 |
+| 4× | 43.1% → **6.9%** | 14 → 42 | 86.4% → — | 7 → — |
+
+At 4× zoom on a 640px-tall window the model overflows the viewport, so part of the measured
+region contains no model at all; some of that residual 6.9% is measurement artifact.
 
 By default the budget adapts to hold 60fps (`js/core/quality.js`), reacting only after several
 seconds of sustained slowness so it never thrashes. Additive blending couples brightness to
