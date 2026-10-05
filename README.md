@@ -247,7 +247,11 @@ The defaults in `js/core/gestures.js` were chosen from anatomical ratios and val
 synthetic landmarks — **they have not been tested against a real human hand.** Treat that as the
 first thing to fix.
 
-## Project document
+## Documentation
+
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) explains how the renderer, gesture classifier,
+picking and model system work and why they are built that way — including the measurement
+mistakes that caused the particle look to be "fixed" wrongly three times.
 
 [`docs/PROJECT.md`](docs/PROJECT.md) covers current status, the remaining-work plan, risk
 register, and timeline.

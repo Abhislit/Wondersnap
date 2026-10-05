@@ -4,7 +4,8 @@ This project has two critical unknowns that **no automated test can resolve**, a
 need a person. This document covers what a human can do that code cannot, then the usual
 contributor workflow.
 
-Read [`KNOWN_PROBLEMS.md`](KNOWN_PROBLEMS.md) for the full defect list. Read this page for what
+Read [`KNOWN_PROBLEMS.md`](KNOWN_PROBLEMS.md) for the full defect list, and
+[`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for how the system works. Read this page for what
 to do about it.
 
 ---

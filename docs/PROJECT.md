@@ -1,7 +1,8 @@
 # WonderSnap — Project Document
 
 > For an honest catalogue of defects rather than a build plan, see
-> [`KNOWN_PROBLEMS.md`](KNOWN_PROBLEMS.md).
+> [`KNOWN_PROBLEMS.md`](KNOWN_PROBLEMS.md). For how the system works, see
+> [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 Status, remaining work, and everything needed to finish this.
 
