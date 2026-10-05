@@ -6,6 +6,23 @@ import { Camera, damp, smoothstep } from './math.js';
 export const PARTICLE_BUDGET = 240000;
 export const MIN_BUDGET = 4000;
 
+export const FOV_Y = (50 * Math.PI) / 180;
+
+/**
+ * Sprite radius in world units, as a fraction of the model radius.
+ *
+ * Calibrated so a model at its default framing renders sprites at the size that
+ * measured gap-free (0% uncovered pixels) before sprite sizing was derived from the
+ * projection. Anchoring here rather than to an absolute pixel size is what keeps
+ * coverage constant as the camera zooms and as the viewport changes.
+ */
+export const SPRITE_WORLD_FRACTION = 0.124;
+
+/** Pixels per world unit at unit depth, for the current framebuffer height. */
+export function pixelsPerWorldUnit(framebufferHeight) {
+  return framebufferHeight / (2 * Math.tan(FOV_Y / 2));
+}
+
 export function prefersReducedMotion() {
   try {
     return typeof matchMedia !== 'undefined'
@@ -34,9 +51,9 @@ export class Stage {
     this.exposureBase = Number.isFinite(exposureParam) ? exposureParam : 700;
     const params = new URLSearchParams(window.location.search);
     const maxPoint = Number.parseFloat(params.get('maxpoint'));
-    this.maxPointSize = Number.isFinite(maxPoint) ? maxPoint : 18;
+    this.maxPointSize = Number.isFinite(maxPoint) ? maxPoint : 96;
     const pointGain = Number.parseFloat(params.get('point'));
-    this.pointGain = Number.isFinite(pointGain) ? pointGain : 520;
+    this.spriteFraction = SPRITE_WORLD_FRACTION * (Number.isFinite(pointGain) ? pointGain : 1);
     const num = (key, fallback) => {
       const v = Number.parseFloat(params.get(key));
       return Number.isFinite(v) ? v : fallback;
@@ -110,6 +127,7 @@ export class Stage {
     this.system.seedFromSphere(4.2);
     this.exposure = this.exposureBase / next;
     if (this.model) this.loadModel(this.model);
+    this.updateSpriteScale();
     return true;
   }
 
@@ -136,7 +154,7 @@ export class Stage {
     this.camera.maxDistance = this.frameDistance(1) * 1.4;
     this.camera.setDistance(this.frameDistance(this.explodeTarget));
     this.camera.distance = this.camera.targetDistance * 1.6;
-    this.pointScale = radius * this.pointGain;
+    this.updateSpriteScale();
 
     this.morph = 0;
     this.morphTarget = 1;
@@ -167,10 +185,25 @@ export class Stage {
     this.camera.setDistance(this.frameDistance(this.explodeTarget ? 1 : 0));
   }
 
+  /**
+   * Sprite size must be derived from the projection, not left to a pixel clamp.
+   *
+   * gl_PointSize is a width in framebuffer pixels, so the world-to-pixel factor is
+   * framebufferHeight / (2*tan(fov/2)). Using it here makes sprites grow as the camera
+   * zooms in and as the viewport gets larger, which is what holds particle coverage
+   * constant. Previously the shader asked for 116-743px and was clamped to 18px, so
+   * zooming to 4x left 43-86% of the model uncovered.
+   */
+  updateSpriteScale() {
+    const height = this.canvas.height || 1;
+    const worldRadius = (this.modelRadius || 1) * this.spriteFraction;
+    this.pointScale = worldRadius * pixelsPerWorldUnit(height);
+  }
+
   frameDistance(explodeAmount) {
     const focus = this.camera.target;
     const extent = this.extentFor(explodeAmount, focus);
-    const halfFov = (50 * Math.PI) / 180 / 2;
+    const halfFov = FOV_Y / 2;
     const aspect = this.camera.aspect || 1;
     const vertical = extent.radius / Math.sin(halfFov);
     const horizontal = vertical * Math.max(1, aspect);
@@ -354,6 +387,7 @@ export class Stage {
     this.viewAspect = this.canvas.clientWidth / Math.max(1, this.canvas.clientHeight);
     this.camera.aspect = this.viewAspect;
     this.system.viewProj.set(this.camera.viewProj(this.viewAspect));
+    this.updateSpriteScale();
     this.exposure = this.exposureBase / this.budget;
   }
 
@@ -381,7 +415,7 @@ export class Stage {
     this.system.renderBackground(w, h, this.palette.top, this.palette.bottom);
 
     this.system.draw({
-      pointScale: this.pointScale * (this.canvas.width / Math.max(1, this.canvas.clientWidth)),
+      pointScale: this.pointScale,
       energyFloor: this.energyFloor,
       sizeBoost: this.sizeBoost,
       exposure: this.exposure,

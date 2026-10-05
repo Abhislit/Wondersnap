@@ -181,8 +181,8 @@ valves and septum completely.
 |---|---|---|
 | `?particles=N` | `240000` | Particle budget, clamped to 4000–240000. **Pins the budget**, disabling auto-quality |
 | `?exposure=N` | `700` | Brightness, scaled down as `N / budget` |
-| `?maxpoint=N` | `18` | Maximum particle sprite size in pixels |
-| `?point=N` | `520` | Sprite size gain; multiplied by the model radius |
+| `?maxpoint=N` | `96` | Safety clamp on sprite size in pixels. Rarely reached now |
+| `?point=N` | `1.0` | Sprite size multiplier on the projection-derived default |
 | `?core=N` | `1.6` | Sprite core falloff exponent. **Lower is softer/wider** |
 | `?haloexp=N` | `1.0` | Outer halo falloff exponent |
 | `?halo=N` | `0.30` | Outer halo brightness weight |
@@ -198,10 +198,26 @@ matters is each sprite's radial brightness profile:
 - All the light confined to a few central pixels means you see isolated hard dots. Pixelated.
 - A **broad, monotone** falloff fills the sprite so neighbours merge, then decays cleanly.
 
-`?core=` is the main lever. Raise it for crisper dots, lower it for a softer glow. `?maxpoint=`
-controls how much area each particle covers.
+`?core=` is the main lever. Raise it for crisper dots, lower it for a softer glow. `?point=`
+scales sprite area overall.
 
-Verified at the full 240k budget: mean luma 64, relative contrast 0.19, no gaps, no clipping.
+Sprite size is **derived from the projection**, not fixed in pixels:
+
+```
+gl_PointSize = modelRadius * SPRITE_WORLD_FRACTION * (framebufferHeight / 2*tan(fov/2)) / dist
+```
+
+so sprites grow as you zoom in and as the viewport grows, and coverage stays constant. This
+previously did not happen: the shader asked for 116–743px and was clamped to 18px, which left
+43% of the model uncovered at 4× zoom on a 640px-tall window and 86% on 1920×1080.
+
+Verified at 640×480, heart, 200k particles — uncovered pixels and mean luminance:
+
+| Zoom | Gap before | Gap after | Mean before | Mean after |
+|---|---|---|---|---|
+| 1× | 0.0% | 0.5% | 72 | 58 |
+| 2× | 0.6% | 2.5% | 30 | 48 |
+| 4× | 43.1% | 6.9% | 14 | 42 |
 
 By default the budget adapts to hold 60fps (`js/core/quality.js`), reacting only after several
 seconds of sustained slowness so it never thrashes. Additive blending couples brightness to

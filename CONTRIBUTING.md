@@ -187,8 +187,8 @@ Particle appearance is controlled by URL parameters, so you can explore without 
 |---|---|---|
 | `?particles=N` | `240000` | Budget. **Pins** it, disabling auto-quality. |
 | `?exposure=N` | `700` | Brightness, scaled down as `N / budget`. |
-| `?maxpoint=N` | `18` | Maximum sprite size in pixels. |
-| `?point=N` | `520` | Sprite size gain, multiplied by model radius. |
+| `?maxpoint=N` | `96` | Safety clamp on sprite size. Rarely reached. |
+| `?point=N` | `1.0` | Sprite size multiplier on the projection-derived default. |
 | `?core=N` | `1.6` | Core falloff exponent. **Lower is softer and wider.** |
 | `?haloexp=N` | `1.0` | Outer halo falloff exponent. |
 | `?halo=N` | `0.30` | Outer halo brightness weight. |
@@ -199,6 +199,9 @@ Blur and speckle are the same defect at opposite ends — the sprite's radial br
 - A **flat plateau** to the sprite edge means overlapping sprites sum to fog. Blurry.
 - All the light confined to a few central pixels means you see isolated hard dots. Pixelated.
 - A **broad, monotone** falloff fills the sprite so neighbours merge, then decays cleanly.
+
+Sprite size is derived from the projection, so it scales with zoom and viewport automatically.
+Do not reintroduce a fixed pixel size — that reintroduces the uncovered-particle defect.
 
 `?core=` is the main lever.
 

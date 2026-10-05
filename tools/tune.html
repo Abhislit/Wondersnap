@@ -201,6 +201,9 @@ document.getElementById('copy').addEventListener('click', async () => {
 });
 
 const history = [];
+let lastMetricsHtml = '';
+let lastTallyHtml = '';
+let lastVideoTime = -1;
 let landmarker = null;
 let running = false;
 
@@ -237,7 +240,10 @@ document.getElementById('start').addEventListener('click', async () => {
 
 function loop() {
   if (!running) return;
-  if (video.readyState >= 2) {
+  // A 30fps camera does not need detecting at 60fps. The main app guards on the video
+  // timestamp for the same reason; without it this loop does double the necessary work.
+  if (video.readyState >= 2 && video.currentTime !== lastVideoTime) {
+    lastVideoTime = video.currentTime;
     const result = landmarker.detectForVideo(video, performance.now());
     const hands = [];
     for (let i = 0; i < result.landmarks.length; i++) {
@@ -278,26 +284,47 @@ function render(hands, state) {
     }
     metrics.push(['twist yaw', state.camera.yaw.toFixed(4)]);
     metrics.push(['two-hand zoom', state.camera.zoom.toFixed(4)]);
-    metricsEl.innerHTML = metrics
+    const html = metrics
       .map(([k, v]) => `<div class="metric"><span>${k}</span><b>${v}</b></div>`)
       .join('');
+    if (html !== lastMetricsHtml) {
+      metricsEl.innerHTML = html;
+      lastMetricsHtml = html;
+    }
     document.getElementById('v-pinch').textContent = `(PINCH_DISTANCE ${tuning.PINCH_DISTANCE})`;
     document.getElementById('v-straight').textContent = `(STRAIGHT_RATIO ${tuning.STRAIGHT_RATIO})`;
     document.getElementById('v-extend').textContent = `(REACH_RATIO ${tuning.REACH_RATIO})`;
   }
 
   const total = Object.values(tally).reduce((a, b) => a + b, 0) || 1;
-  tallyEl.innerHTML = POSE_ORDER.map((n) => {
+  const tallyHtml = POSE_ORDER.map((n) => {
     const pct = ((tally[n] / total) * 100).toFixed(1);
     return `<div class="metric"><span>${POSE_LABELS[n]}</span><b>${pct}%</b></div>`;
   }).join('');
+  if (tallyHtml !== lastTallyHtml) {
+    tallyEl.innerHTML = tallyHtml;
+    lastTallyHtml = tallyHtml;
+  }
 
   drawTrace();
 }
 
+// Assigning canvas.width reallocates the backing store and clears the canvas. Doing that
+// every frame was forcing a reallocation 60 times a second; size it on resize instead.
+function sizeTrace() {
+  const dpr = devicePixelRatio || 1;
+  const w = Math.max(1, Math.round(trace.clientWidth * dpr));
+  const h = Math.max(1, Math.round(trace.clientHeight * dpr));
+  if (trace.width !== w) trace.width = w;
+  if (trace.height !== h) trace.height = h;
+}
+window.addEventListener('resize', sizeTrace);
+sizeTrace();
+
 function drawTrace() {
-  const w = trace.width = trace.clientWidth * devicePixelRatio;
-  const h = trace.height = trace.clientHeight * devicePixelRatio;
+  sizeTrace();
+  const w = trace.width;
+  const h = trace.height;
   tctx.clearRect(0, 0, w, h);
 
   const series = [

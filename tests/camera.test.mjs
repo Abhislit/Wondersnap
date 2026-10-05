@@ -1,4 +1,5 @@
 import { Camera } from '../js/core/math.js';
+import { pixelsPerWorldUnit, FOV_Y, SPRITE_WORLD_FRACTION } from '../js/core/stage.js';
 
 const results = [];
 let group = '';
@@ -10,6 +11,7 @@ function it(name, fn) {
 function ok(v, m = 'expected truthy') { if (!v) throw new Error(m); }
 function eq(a, b, m = '') { if (a !== b) throw new Error(`${m} expected ${b}, got ${a}`); }
 function gte(a, min, m = '') { if (!(a >= min)) throw new Error(`${m} expected >= ${min}, got ${a}`); }
+function close(a, b, tol, m = "") { if (Math.abs(a - b) > tol) throw new Error(`${m} ${a} vs ${b} (tol ${tol})`); }
 
 const W = 800, H = 600, ASPECT = W / H;
 
@@ -112,6 +114,36 @@ it('viewProj produces a finite matrix at sane aspect ratios', () => {
     eq(m.length, 16, 'length');
     for (let i = 0; i < 16; i++) ok(Number.isFinite(m[i]), `m[${i}] finite at aspect ${aspect}`);
   }
+});
+
+describe('sprite sizing');
+
+it('pixelsPerWorldUnit matches the perspective projection', () => {
+  for (const h of [480, 1080, 2160]) {
+    const ppu = pixelsPerWorldUnit(h);
+    // a point one world unit in front must project this many pixels tall
+    close(ppu, h / (2 * Math.tan(FOV_Y / 2)), 1e-6, `height ${h}`);
+  }
+});
+
+it('sprite size scales with framebuffer height', () => {
+  const a = pixelsPerWorldUnit(480);
+  const b = pixelsPerWorldUnit(1440);
+  close(b / a, 3, 1e-9, '3x the pixels, 3x the sprite');
+});
+
+it('the sprite fraction is a sane world-space size', () => {
+  ok(SPRITE_WORLD_FRACTION > 0.01 && SPRITE_WORLD_FRACTION < 1, `fraction ${SPRITE_WORLD_FRACTION}`);
+});
+
+it('a zoomed-in camera requests larger sprites, not the same ones', () => {
+  // The defect this guards against: gl_PointSize was clamped to a constant, so the shader
+  // asked for a large sprite and always got a small one, leaving the surface uncovered.
+  const worldRadius = 2.3 * SPRITE_WORLD_FRACTION;
+  const ppu = pixelsPerWorldUnit(1080);
+  const near = worldRadius * ppu / 2.0;
+  const far = worldRadius * ppu / 8.0;
+  ok(near > far * 3, `zoom 4x should request >3x the sprite: ${near.toFixed(1)} vs ${far.toFixed(1)}`);
 });
 
 let failed = 0;

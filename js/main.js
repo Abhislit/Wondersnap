@@ -385,7 +385,12 @@ function frame() {
   resize();
 
   const now = performance.now();
-  const dt = Math.min(0.05, (now - lastTime) / 1000);
+  const elapsed = (now - lastTime) / 1000;
+  // The simulation needs a clamped step so a long frame cannot blow up the spring
+  // integrator. Anything that *measures* must use the real elapsed time, or the fps
+  // counter can never report worse than 1/clamp and hides exactly the problem it
+  // exists to reveal.
+  const dt = Math.min(0.05, elapsed);
   lastTime = now;
 
   if (panelTimer > 0) panelTimer -= dt;
@@ -398,7 +403,7 @@ function frame() {
   stage.render(dt);
   drawOverlay(hands, state);
 
-  quality?.sample(dt);
+  quality?.sample(elapsed);
   if (quality?.shouldRebuild()) {
     const next = quality.pendingBudget;
     if (stage.setBudget(next)) {
@@ -412,7 +417,7 @@ function frame() {
   if (pendingCapture) pendingCapture(stage, stage.gl, canvas);
 
   frames += 1;
-  fpsTimer += dt;
+  fpsTimer += elapsed;
   if (fpsTimer >= 0.5) {
     lastFps = frames / fpsTimer;
     frames = 0;

@@ -60,9 +60,13 @@ and framerate is not a meaningful number.
 The particle pipeline is written for the GPU (float textures, ping-ponged FBOs, MRT) and the
 architecture is sound. But "240k at 60fps" is a design target, not a measured result.
 
+Measured under software rendering the app runs at **0.6fps** — previously masked by the broken
+fps counter, which floored at 20 (see M5).
+
 **Known risk:** whether 240k is viable at all on the hardware it will actually run on. The adaptive
 quality controller in `js/core/quality.js` exists precisely because this is unknown, and it will
-silently reduce quality to 4k on a weak machine rather than admit it cannot hold framerate.
+silently reduce quality to 4k on a weak machine rather than admit it cannot hold framerate. The
+counter now reports honestly, so the top-left readout is the thing to trust.
 
 **What would resolve it:** open the app on three machines — discrete, integrated, laptop — and
 record the fps counter at the default budget.
@@ -121,7 +125,45 @@ better precision, and because `pick()` allocates nothing but does the full scan 
 regardless of how small the tolerance is. A uniform grid over the point cloud would make it
 effectively constant.
 
-### M5. Adaptive quality rebuilds geometry, and can oscillate
+### M5. ~~The fps counter could not report below 20fps~~ — fixed 2026-10-04
+
+`js/main.js` clamped `dt` to 50ms for the simulation, which is correct, then accumulated that
+*clamped* value into the fps counter:
+
+```js
+const dt = Math.min(0.05, (now - lastTime) / 1000);
+fpsTimer += dt;
+if (fpsTimer >= 0.5) lastFps = frames / fpsTimer;   // floors at 20fps
+```
+
+So the counter could never report worse than 20fps no matter how slow the app actually was. Under
+software rendering the real frame time was **1766ms (0.6fps)** while the counter read 20.
+
+This was worse than a cosmetic bug: it was the primary diagnostic for the performance question,
+and it was structurally incapable of answering it. The same clamped value was also fed to the
+quality controller, which therefore could not distinguish 20fps from 0.6fps. Both now use real
+elapsed time, with the clamp kept only for the simulation.
+
+### M6. Sprite size was clamped to a constant 18px — fixed 2026-10-04
+
+The single largest cause of "the particles look blurry". The shader computed a desired
+`gl_PointSize` of 116–743px, which was clamped down to 18px, so every particle was the same size
+regardless of zoom or viewport. As the model grew on screen, the spacing between particles grew
+while the sprites did not, so coverage collapsed.
+
+Measured uncovered pixels, heart, 200k particles:
+
+| Zoom | 640×480 before | 640×480 after | 1920×1080 before | 1920×1080 after |
+|---|---|---|---|---|
+| 1× | 0.0% | 0.5% | 0.3% | — |
+| 2× | 0.6% | 2.5% | 28.6% | — |
+| 4× | 43.1% | 6.9% | 86.4% | — |
+
+Sprite size is now derived from the projection, so it scales with zoom and viewport. Note the
+residual 6.9% at 4× zoom, where the model overflows the viewport and part of the measured region
+simply contains no model — some of that is measurement artifact, not uncovered surface.
+
+### M7. Adaptive quality rebuilds geometry, and can oscillate
 
 `Stage.setBudget()` constructs a new `ParticleSystem`, re-seeds the cloud and re-bakes the whole
 model. That is the expensive operation the controller exists to avoid, and it happens on the main
@@ -132,7 +174,7 @@ controller can cycle between two budgets indefinitely. It only upgrades when fra
 55% of target, which makes oscillation unlikely, but the failure mode is a visible hitch loop
 rather than a smooth degradation.
 
-### M6. Silent
+### M8. Silent
 
 No audio whatsoever. Engine models in particular are close to pointless without the sound of
 something running; a four-stroke engine model is a diagram of motion, not an engine.
@@ -231,7 +273,7 @@ simplification. A test that asserts "the aorta exists" is satisfied by a tube.
 | Severity | Count | Blocking release? |
 |---|---|---|
 | Critical | 2 | Yes |
-| Major | 6 | Yes |
+| Major | 8 (2 since fixed) | Yes |
 | Minor | 7 | No |
 
 The two critical problems share a root cause: **everything has been verified against synthetic
