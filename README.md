@@ -75,9 +75,20 @@ build time, sampled on an even stride so every part is represented. Readback fro
 every frame would stall the pipeline.
 
 Pick is nearest-in-screen-space within a 30 px radius, which measured 100% self-hit accuracy
-across all four models in the exploded view. Depth-first picking was tried and rejected: shells
+across every registered model in the exploded view. Depth-first picking was tried and rejected: shells
 like the jet engine's nacelle sit in front of everything and always win, so you could never
 select an internal component.
+
+With the camera running, the webcam is composited behind the particles: the drawing buffer is created
+with `alpha: true`, and the canvas's own gradient is skipped so the video shows through. The feed is
+mirrored, because the tracking overlay is mirrored, and dimmed by a scrim — additive particles read
+worse over a bright room than over black. The **Camera back** chip toggles it. Without a camera the
+gradient returns unchanged.
+
+Sprite world size falls as `1/sqrt(budget)`, which is the same law that governs the gap between
+neighbouring particles. Overlap — the number of sprites covering a pixel — therefore stays constant at
+every budget the quality controller can pick, instead of climbing to 19x at 240k and washing the model
+out into a glow. Exposure is budget-independent to match, since brightness goes as overlap x exposure.
 
 Explode offsets are pre-scaled on the CPU at build time so the GPU and the picker agree on where
 a part actually is. They were not originally, which meant pointing at the nacelle selected
@@ -266,7 +277,7 @@ the two problems that need a human rather than a test.
 
 What is verified:
 
-- 129 automated checks — 108 unit plus 21 in headless Chrome. Rendering, all four models,
+- 141 automated checks — 115 unit plus 26 in headless Chrome. Rendering, all five models,
   pose classification, snap detection, picking accuracy, explode/cutaway/burst state,
   camera clamping, progress persistence, adaptive quality, and UI wiring.
 
@@ -275,10 +286,11 @@ What is **not** verified:
 - **No real-camera testing.** All runs used Chrome's fake webcam device. The gesture thresholds
   above are reasoned estimates and will need tuning against actual hands — `tools/tune.html` is
   the tool for that.
-- **Never run at 240k on a real GPU.** Verification ran under SwiftShader software rendering
-  because the test machine has no GPU. Framerate at full budget is unmeasured; adaptive quality
-  mitigates but does not measure it.
-- **4 of 29 models.** Heart, DNA double helix, Eiffel Tower, turbofan jet engine.
+- **Partly run at 240k on a real GPU.** Measured on Intel Iris Xe (Tiger Lake, Vulkan/ANGLE)
+  at 240,000 particles pinned: 60fps on the exploded brain, 29-31fps assembled. Discrete and
+  laptop GPUs are still unmeasured, so 60fps is not yet shown to be a floor. CI still runs under
+  SwiftShader and makes no framerate claim.
+- **5 of 29 models.** Heart, brain, DNA double helix, Eiffel Tower, turbofan jet engine.
 - **Safari and Firefox untested.** Only Chrome.
 
 A known weakness: models whose parts are concentric or nested (much of biology and anatomy) are

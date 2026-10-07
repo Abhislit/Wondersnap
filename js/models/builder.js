@@ -126,10 +126,16 @@ export class ModelBuilder {
 
       part.count = count;
       part.center = [cx / count, cy / count, cz / count];
+      // Radius that contains the part on every axis: the largest half-extent, not the
+      // diagonal of them. hypot(ex, ey, ez) is the sphere bound, which overshoots for any
+      // part that is not cubic -- a heart wall 4 wide and 0.2 deep reports a radius of ~2
+      // instead of 2...0.2 deep's worth of slack, so the camera framed the model around
+      // empty space. extentFor and this value are both read as "reach on the widest axis",
+      // so they have to agree.
       const ex = (maxX - minX) / 2;
       const ey = (maxY - minY) / 2;
       const ez = (maxZ - minZ) / 2;
-      part.radius = Math.hypot(ex, ey, ez) || 0.001;
+      part.radius = Math.max(ex, ey, ez) || 0.001;
     });
 
     for (let i = cursor; i < texels; i++) {
@@ -206,14 +212,26 @@ export function buildPickPoints(positions, groups, total, sampleCount) {
   return { data: out.subarray(0, written * 4), count: written };
 }
 
+/**
+ * Midpoint of the model's axis-aligned extent.
+ *
+ * This used to average the part centres. That is not the middle of the model: parts differ
+ * in size, so the mean drifts toward whichever side has more of them. The heart came out
+ * 0.51 units off its true centre and the jet engine 0.59, which the camera then aimed at,
+ * pushing both visibly off-centre in frame. The camera frames about this point, so it has
+ * to be the actual middle.
+ */
 export function boundsCenter(parts) {
-  const c = [0, 0, 0];
+  const lo = [Infinity, Infinity, Infinity];
+  const hi = [-Infinity, -Infinity, -Infinity];
   for (const p of parts) {
-    c[0] += p.center[0];
-    c[1] += p.center[1];
-    c[2] += p.center[2];
+    for (let i = 0; i < 3; i++) {
+      lo[i] = Math.min(lo[i], p.center[i] - p.radius);
+      hi[i] = Math.max(hi[i], p.center[i] + p.radius);
+    }
   }
-  return [c[0] / parts.length, c[1] / parts.length, c[2] / parts.length];
+  if (!Number.isFinite(lo[0])) return [0, 0, 0];
+  return [(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, (lo[2] + hi[2]) / 2];
 }
 
 export function boundsRadius(parts) {

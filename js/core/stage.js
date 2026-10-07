@@ -18,6 +18,30 @@ export const FOV_Y = (50 * Math.PI) / 180;
  */
 export const SPRITE_WORLD_FRACTION = 0.124;
 
+/**
+ * Fraction of the frame height the model's extent should occupy. Just under 1 so the model
+ * never touches the viewport edge, and so a wide viewport still has air at the sides.
+ */
+export const FRAME_FILL = 0.92;
+
+/**
+ * World-space radius of one particle sprite.
+ *
+ * Particles lie on a surface of roughly constant area, so the gap between neighbours
+ * grows as 1/sqrt(budget). Holding the sprite at a fixed fraction of the model radius
+ * therefore lets the number of sprites covering a pixel climb with the budget: measured
+ * at 19x on a 240k brain, which additive blending turns into a featureless glow, and it
+ * means a weak machine forced down to 4k renders sharper than a strong one at 240k.
+ *
+ * Scaling by the same 1/sqrt(budget) law keeps the overlap ratio constant across every
+ * budget the quality controller can pick. Anchored at MIN_BUDGET, so the weakest
+ * supported machine keeps exactly the sprite size it has today and only better hardware
+ * gets more detail.
+ */
+export function spriteWorldRadius(modelRadius, budget, spriteFraction = SPRITE_WORLD_FRACTION) {
+  return modelRadius * spriteFraction * Math.sqrt(MIN_BUDGET / budget);
+}
+
 /** Pixels per world unit at unit depth, for the current framebuffer height. */
 export function pixelsPerWorldUnit(framebufferHeight) {
   return framebufferHeight / (2 * Math.tan(FOV_Y / 2));
@@ -48,7 +72,7 @@ export class Stage {
     const exposureParam = Number.parseFloat(
       new URLSearchParams(window.location.search).get('exposure'),
     );
-    this.exposureBase = Number.isFinite(exposureParam) ? exposureParam : 700;
+    this.exposureBase = Number.isFinite(exposureParam) ? exposureParam : 0.125;
     const params = new URLSearchParams(window.location.search);
     const maxPoint = Number.parseFloat(params.get('maxpoint'));
     this.maxPointSize = Number.isFinite(maxPoint) ? maxPoint : 96;
@@ -89,6 +113,9 @@ export class Stage {
     this.grabTarget = new Float32Array([0, 0, 0]);
 
     this.palette = { top: [0.03, 0.05, 0.12], bottom: [0.0, 0.0, 0.02] };
+    // Set from main.js once the camera is actually running; until then the canvas keeps
+    // painting its own gradient.
+    this.cameraBack = false;
     this.time = 0;
     this.reducedMotion = prefersReducedMotion();
     this.idleSpin = this.reducedMotion ? 0 : 0.11;
@@ -125,7 +152,7 @@ export class Stage {
     this.budget = next;
     this.system = new ParticleSystem(this.gl, next);
     this.system.seedFromSphere(4.2);
-    this.exposure = this.exposureBase / next;
+    this.updateExposure();
     if (this.model) this.loadModel(this.model);
     this.updateSpriteScale();
     return true;
@@ -186,40 +213,87 @@ export class Stage {
   }
 
   /**
+   * Per-pixel brightness goes as overlap x exposure. Sprite overlap is now the same at
+   * every budget (see spriteWorldRadius), so exposure has to be as well: dividing it by
+   * the budget as well double-counted the budget, which made a machine that had been
+   * throttled to 4k render far brighter than one running at 240k.
+   */
+  updateExposure() {
+    this.exposure = this.exposureBase;
+    return this.exposure;
+  }
+
+  /**
+   * The canvas is always transparent, so the desktop or the webcam shows through the
+   * particles. Always false: the gradient is never drawn, with or without a camera.
+   */
+  wantsBackground() {
+    return false;
+  }
+
+  /**
    * Sprite size must be derived from the projection, not left to a pixel clamp.
    *
    * gl_PointSize is a width in framebuffer pixels, so the world-to-pixel factor is
    * framebufferHeight / (2*tan(fov/2)). Using it here makes sprites grow as the camera
-   * zooms in and as the viewport gets larger, which is what holds particle coverage
-   * constant. Previously the shader asked for 116-743px and was clamped to 18px, so
-   * zooming to 4x left 43-86% of the model uncovered.
+   * zooms in and as the viewport gets larger. Sprite world size comes from
+   * spriteWorldRadius, which also tracks the particle budget.
    */
   updateSpriteScale() {
     const height = this.canvas.height || 1;
-    const worldRadius = (this.modelRadius || 1) * this.spriteFraction;
-    this.pointScale = worldRadius * pixelsPerWorldUnit(height);
+    this.pointScale = spriteWorldRadius(this.modelRadius || 0, this.budget, this.spriteFraction)
+      * pixelsPerWorldUnit(height);
   }
 
+  /**
+   * Distance at which the model's extent fills the frame.
+   *
+   * The frustum's half-height at distance d is d*tan(halfFov), so an extent of radius R
+   * exactly fills the height at R/tan(halfFov). Height is what binds on a landscape
+   * display; the width has to be divided by the aspect ratio, which is why a viewport
+   * narrower than it is tall pulls the camera back instead of cropping.
+   *
+   * Two things used to fight this. The horizontal term was multiplied by the aspect rather
+   * than divided, which pushed the camera 1.6x further away on a 16:10 display and made
+   * every model render at 63% of its intended size. And a `modelRadius * 1.2` floor in the
+   * max() pushed large models further away still -- the eiffel tower, at radius 3.27, sat
+   * well past its own extent. FRAME_FILL is the margin that was actually wanted.
+   */
   frameDistance(explodeAmount) {
     const focus = this.camera.target;
     const extent = this.extentFor(explodeAmount, focus);
     const halfFov = FOV_Y / 2;
     const aspect = this.camera.aspect || 1;
-    const vertical = extent.radius / Math.sin(halfFov);
-    const horizontal = vertical * Math.max(1, aspect);
-    return Math.max(this.modelRadius * 1.2, vertical, horizontal);
+    // Leave a little air so the model never touches the viewport edge.
+    const fill = FRAME_FILL;
+    // Height is almost always the binding constraint on a landscape display, because the
+    // frustum's half-width is tan(halfFov)*aspect. It only stops binding on a portrait
+    // viewport, where aspect < 1 and the width has to be divided instead.
+    const vertical = extent.radius / Math.tan(halfFov) / fill;
+    const horizontal = extent.radius / (Math.tan(halfFov) * aspect) / fill;
+    return Math.max(vertical, horizontal);
   }
 
+  /**
+   * Radius of the sphere that contains the model, about `focus`.
+   *
+   * This used to be `distance(centre, focus) + radius` per part, which is the bounding
+   * *sphere* of each part. Wide, flat parts -- most of the brain's lobes -- then
+   * overshot their real silhouette, and the camera reserved space that was never used, so
+   * the model rendered at ~63% of the frame instead of the requested fill.
+   *
+   * Taking the largest per-axis half-extent is the tighter bound on the same data: the
+   * true extent of a part along axis i is |centre_i - focus_i| + radius, and the model
+   * only needs its largest of those, not the Euclidean sum of all three.
+   */
   extentFor(explodeAmount, focus) {
     let radius = 0;
     for (const part of this.parts) {
       const v = part.explodeVector;
-      const d = Math.hypot(
-        part.center[0] + v[0] * explodeAmount - focus[0],
-        part.center[1] + v[1] * explodeAmount - focus[1],
-        part.center[2] + v[2] * explodeAmount - focus[2],
-      );
-      radius = Math.max(radius, d + part.radius);
+      for (let i = 0; i < 3; i++) {
+        const reach = Math.abs(part.center[i] + v[i] * explodeAmount - focus[i]) + part.radius;
+        if (reach > radius) radius = reach;
+      }
     }
     return { radius: radius || 1 };
   }
@@ -388,7 +462,7 @@ export class Stage {
     this.camera.aspect = this.viewAspect;
     this.system.viewProj.set(this.camera.viewProj(this.viewAspect));
     this.updateSpriteScale();
-    this.exposure = this.exposureBase / this.budget;
+    this.updateExposure();
   }
 
   render(dt) {
@@ -412,7 +486,15 @@ export class Stage {
     });
 
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    this.system.renderBackground(w, h, this.palette.top, this.palette.bottom);
+    // The background pass is opaque (alpha 1.0), so it doubles as the clear. When the
+    // webcam is composited behind the canvas it has to be skipped, and the buffer cleared
+    // to transparent instead -- otherwise the last frame's particles persist as trails.
+    if (this.wantsBackground()) {
+      this.system.renderBackground(w, h, this.palette.top, this.palette.bottom);
+    } else {
+      this.gl.clearColor(0, 0, 0, 0);
+      this.gl.clear(this.gl.COLOR_BUFFER_BIT);
+    }
 
     this.system.draw({
       pointScale: this.pointScale,

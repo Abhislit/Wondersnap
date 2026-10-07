@@ -1,11 +1,24 @@
-export function createContext(canvas) {
-  const gl = canvas.getContext('webgl2', {
-    alpha: false,
+/**
+ * Drawing-buffer attributes, kept in one place so a test can assert them without a real
+ * context.
+ *
+ * `alpha` and `premultipliedAlpha` exist so the webcam can be composited behind the
+ * particles: the draw shader already outputs premultiplied colour, so the canvas has to
+ * agree or the particles darken against the video instead of glowing over it.
+ */
+export function contextAttributes() {
+  return {
+    alpha: true,
+    premultipliedAlpha: true,
     antialias: false,
     depth: false,
     powerPreference: 'high-performance',
     preserveDrawingBuffer: false,
-  });
+  };
+}
+
+export function createContext(canvas) {
+  const gl = canvas.getContext('webgl2', contextAttributes());
   if (!gl) throw new Error('WebGL2 is not available in this browser.');
 
   const ext = {

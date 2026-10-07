@@ -46,7 +46,7 @@ headless Chrome (`npm run test:browser`). Both run in CI.
 | GPU pipeline | Renders; no GL errors across all models; image brightness stays in range |
 | Budget rebuild | `setBudget()` regenerates geometry and preserves exposure at runtime |
 | Particle budget | 240,000 default; all four models fill the budget |
-| Models | 4 built, each with 7–10 named, described, individually pickable parts |
+| Models | 5 built, each with 7–11 named, described, individually pickable parts |
 | Pose classification | Open palm, fist, point, pinch all correctly distinguished; a relaxed half-curled hand matches none of them |
 | Snap detection | Fires on a fast close; ignores a slow close and a hand held open; survives low frame rates |
 | Picking | Every part of every model is reachable in the exploded view; 100% self-hit accuracy across 4 models × 5 camera angles |
@@ -67,7 +67,7 @@ These are the real gaps. None are hidden in the README.
 |---|---|
 | **Never tested with a real webcam** | Every gesture threshold is a reasoned estimate. This is the single largest risk to the project. |
 | **Never run at 240k on a real GPU** | All verification ran at 8k–20k under software rendering (SwiftShader). Framerate at full budget is unmeasured. Adaptive quality mitigates but does not measure this. |
-| **4 of 29 models** | The headline claim. |
+| **5 of 29 models** | The headline claim. |
 | **Silent** | No audio at all. Engine models in particular would benefit enormously. |
 | **Quiz removed** | Cut from the build at the maintainer's request; narration and the inspector carry the teaching load. |
 | **Silent by decision** | Audio was deliberately deferred; see §5.2. |
@@ -159,7 +159,7 @@ Ordered by dependency. Do them in this sequence.
 
 | # | Task | Status |
 |---|---|---|
-| 1.1 | Measure at 240k on discrete, integrated, and laptop GPUs | **Not started** — needs real hardware |
+| 1.1 | Measure at 240k on discrete, integrated, and laptop GPUs | **Partly done** — integrated Intel Iris Xe measured at 60fps exploded / 29-31fps assembled; discrete and laptop still unmeasured |
 | 1.2 | Adaptive quality: scale particle budget to hold a frame-time target | **Done** — `js/core/quality.js`, 19 tests |
 | 1.3 | Verify simulation and rendering are decoupled from CV frame rate | Confirmed — `tracker.poll()` early-returns on a duplicate video timestamp |
 | 1.4 | Clear message when `EXT_color_buffer_float` is absent | **Done** — `js/gpu/gl.js` throws a readable error |
@@ -179,7 +179,7 @@ is what separates a demo from a product.
 | 2.5 | `CONTRIBUTING.md` | **Done** — setup, model authoring, look tuning, and the two problems only a human can resolve |
 | 2.6 | Pin the MediaPipe version in one place | **Done** — `setup.sh` and `tests/browser.test.mjs` both use 1.0.1 |
 
-### Phase 3 — The remaining 25 models *(~20–30 h)*
+### Phase 3 — The remaining 24 models *(~18–28 h)*
 
 This is the bulk of the work and the bulk of the headline claim. Each model is ~45–90 min once
 the pattern is familiar.
@@ -191,7 +191,7 @@ Current: 4. Needed: 25. The six categories from the project brief:
   Taj Mahal, Statue of Liberty, Sydney Opera House, Burj Khalifa
 
 **🫀 Human Anatomy** — 1 of 5 done
-- ✅ Human Heart — remaining: Brain, Lungs, Eye, Skeleton, Human Cell
+- ✅ Human Heart · ✅ Human Brain — remaining: Lungs, Eye, Skeleton, Human Cell
 
 **🧬 Biology** — 1 of 4 done
 - ✅ DNA Double Helix — remaining: Cell (organelles), Mitochondrion, Chloroplast, Protein
@@ -215,7 +215,9 @@ Model authoring checklist per model:
    This cost real debugging time on the heart's ventricles.
 2. Every part needs a `name` and a `description` over ~60 characters. Narration and the
    inspector read these verbatim, so a thin description reads thin on screen.
-3. Verify the part is reachable: `selectable` must be true for every part in the exploded view.
+3. Verify the part is reachable. There is no `selectable` flag — reachability is asserted by the
+   suites instead: `models.test.mjs` requires every part to contribute pick samples, and
+   `browser.test.mjs` projects and hits every part from three camera angles.
 4. Aim for 6–12 parts.
 5. Weight parts by visual importance, not by particle budget convenience.
 
@@ -270,7 +272,7 @@ Model authoring checklist per model:
 | Particle budget | **Adaptive, with a fixed override** | Adapts to real hardware, and `?particles=` still pins it for demos and CI. |
 | Audio | **Not in v1** | Surprise noise in a webcam-gesture app is a real UX cost. Revisit with the animation work. |
 | Roadmap | **This document** | A public board is only worth it once there are outside contributors. |
-| The other 25 models | **Still open** | The list in §4.3 is a proposal. The brief names six categories but not the members. |
+| The other 24 models | **Still open** | The list in §4.3 is a proposal. The brief names six categories but not the members. |
 
 ### 5.3 Known weaknesses in the current code
 
@@ -293,20 +295,20 @@ Assumes one developer, familiar with the codebase, and Phase 0 surfacing no cata
 
 | Phase | Work | Estimate |
 |---|---|---|
-| 0 | Gesture de-risking | 4 h — **harness, cooldown, hysteresis, 105 tests done; real hands remain** |
+| 0 | Gesture de-risking | 4 h — **harness, cooldown, hysteresis, tests done; real hands remain** |
 | 1 | Performance and adaptive quality | 4 h — **adaptive quality done; GPU measurement remains** |
 | 2 | Repo essentials — license, tests, CI | 2 h — **done** |
-| 3 | **25 models** | **20–30 h** |
+| 3 | **24 models** | **18–28 h** |
 | 4 | Learning features | 6 h |
 | 5 | Depth — animations, sound, tours | 10 h |
 | 6 | Hardening | 4 h |
-| | **To a genuinely complete 29-model project** | **50–60 h** |
+| | **To a genuinely complete 29-model project** | **48–58 h** |
 | | **To a credible demo — 10 models, gestures verified** | **~30 h** |
 
-Roughly a week of focused work for the full thing. The 25 models are 40% of the hours and 100% of
+Roughly a week of focused work for the full thing. The 24 models are 40% of the hours and 100% of
 the headline claim.
 
-**Suggested order:** Phase 0 → Phase 1 → Phase 2 → then judge whether to commit to all 25 models or
+**Suggested order:** Phase 0 → Phase 1 → Phase 2 → then judge whether to commit to all 24 models or
 consolidate at 10. Deciding that after Phase 0 is much cheaper than deciding it now.
 
 ---
@@ -387,7 +389,7 @@ Two things are not true yet, and both are load-bearing for the project's claims:
 1. **The gestures have never touched a human hand.** Every threshold is an estimate. This is the
    difference between a working prototype and a working product, and it is roughly half a day of
    work to resolve.
-2. **4 of 29 models exist.** The architecture makes the other 25 mostly mechanical, but 20–30 hours
-   is real, and rushed models would undercut the quality of the four good ones.
+2. **5 of 29 models exist.** The architecture makes the other 24 mostly mechanical, but 18–28 hours
+   is real, and rushed models would undercut the quality of the good ones.
 
 The README states both limitations plainly. That should stay true as the project grows.

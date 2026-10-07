@@ -2,7 +2,7 @@
 
 An honest catalogue of what is wrong with this project, ordered by how much it hurts.
 
-Last reviewed: 3 October 2026 · commit `bd8d585`
+Last reviewed: 6 October 2026
 
 This document is deliberately uncomfortable. A project that lists its problems is more useful
 than one that claims to be finished. Where a problem is measurable, the measurement is given.
@@ -51,10 +51,15 @@ of `PROJECT.md`.
 
 ---
 
-### C2. The 240,000-particle budget has never run on a GPU
+### C2. The 240,000-particle budget has run on only one GPU *(partly resolved)*
 
-Every measurement in this repository was taken under SwiftShader — CPU software rendering —
-because no GPU was available. At that point the app takes ~40 seconds to reach "Tracking live",
+Every measurement in this repository was originally taken under SwiftShader — CPU software
+rendering — because no GPU was available. `tests/browser.test.mjs` forced it, via
+`--use-angle=swiftshader`, so nothing could have measured hardware even if one had been present.
+
+That flag is now switchable (`WONDERGL=vulkan`) and the suite has been run on real hardware:
+an Intel Iris Xe (Tiger Lake, Vulkan/ANGLE) at 240,000 particles pinned gives **60fps exploded
+and 29-31fps assembled**. Discrete and laptop GPUs remain unmeasured. At that point the app takes ~40 seconds to reach "Tracking live",
 and framerate is not a meaningful number.
 
 The particle pipeline is written for the GPU (float textures, ping-ponged FBOs, MRT) and the
@@ -68,8 +73,9 @@ quality controller in `js/core/quality.js` exists precisely because this is unkn
 silently reduce quality to 4k on a weak machine rather than admit it cannot hold framerate. The
 counter now reports honestly, so the top-left readout is the thing to trust.
 
-**What would resolve it:** open the app on three machines — discrete, integrated, laptop — and
-record the fps counter at the default budget.
+**What remains:** open the app on a discrete and a laptop GPU and record the fps counter at the
+default budget. Until then 60fps is shown to be reachable on weak integrated graphics, not shown
+to be a floor.
 
 ---
 
@@ -144,26 +150,60 @@ and it was structurally incapable of answering it. The same clamped value was al
 quality controller, which therefore could not distinguish 20fps from 0.6fps. Both now use real
 elapsed time, with the clamp kept only for the simulation.
 
-### M6. Sprite size was clamped to a constant 18px — fixed 2026-10-04
+### M6. Sprite size was clamped to a constant 18px — fixed 2026-10-04, superseded by M6b
 
 The single largest cause of "the particles look blurry". The shader computed a desired
-`gl_PointSize` of 116–743px, which was clamped down to 18px, so every particle was the same size
+`gl_PointSize` of 116-743px, which was clamped down to 18px, so every particle was the same size
 regardless of zoom or viewport. As the model grew on screen, the spacing between particles grew
 while the sprites did not, so coverage collapsed.
 
 Measured uncovered pixels, heart, 200k particles:
 
-| Zoom | 640×480 before | after | 1920×1080 before | after |
+| Zoom | 640x480 before | after | 1920x1080 before | after |
 |---|---|---|---|---|
-| 1× | 0.0% | 0.5% | 0.3% | 0.4% |
-| 2× | 0.6% | 2.5% | 28.6% | 1.9% |
-| 4× | 43.1% | 6.9% | 86.4% | — |
+| 1x | 0.0% | 0.5% | 0.3% | 0.4% |
+| 2x | 0.6% | 2.5% | 28.6% | 1.9% |
+| 4x | 43.1% | 6.9% | 86.4% | - |
 
-Mean luminance at 1920×1080 also stopped collapsing: 28.6 → 54.3 at 1×, and 14.6 → 52.0 at 2×.
+Mean luminance at 1920x1080 also stopped collapsing: 28.6 -> 54.3 at 1x, and 14.6 -> 52.0 at 2x.
 
 Sprite size is now derived from the projection, so it scales with zoom and viewport. Note the
-residual 6.9% at 4× zoom, where the model overflows the viewport and part of the measured region
-simply contains no model — some of that is measurement artifact, not uncovered surface.
+residual 6.9% at 4x zoom, where the model overflows the viewport and part of the measured region
+simply contains no model - some of that is measurement artifact, not uncovered surface.
+
+The uncovered-pixel figures above were measured with the sprite held at a fixed fraction of model
+radius, which is the defect M6b corrects, so they do not carry over to the current sizing.
+
+### M6b. Sprite size ignored the particle budget, so the surface blurred at full budget — fixed 2026-10-06
+
+This is the follow-on the first fix missed. `updateSpriteScale` derived the sprite from
+`modelRadius * SPRITE_WORLD_FRACTION`, which is independent of how many particles there are. But the
+gap between neighbouring particles grows as `1/sqrt(budget)`, so the number of sprites covering a
+pixel grew with the budget:
+
+| budget | inter-particle spacing | sprite | overlap | sharpness |
+|---|---|---|---|---|
+| 240k | 1.23 px | 23.9 px | **19.4x** | 30.9 |
+| 4k | 7.8 px | 23.9 px | 3.1x | — |
+
+At 19x overlap, additive blending puts roughly 380 sprites into every pixel and the model renders as
+a featureless glow with its middle blown to white. It also meant a machine throttled down to 4k by
+the quality controller rendered *sharper* than a strong one at 240k, which is backwards.
+
+Fixed by sizing the sprite on the same `1/sqrt(budget)` law, so overlap is constant at every budget,
+and by making exposure budget-independent to match (brightness goes as overlap x exposure, so
+dividing exposure by the budget as well double-counted it).
+
+Measured on the brain at 240k, Intel Iris Xe:
+
+| | mean luma over mask | lit % | sharpness |
+|---|---|---|---|
+| before | 80.2 | 56.4 | 30.9 |
+| after | 78.0 | 54.4 | **62.3** |
+
+Overlap is now 2.5x at 240k, 120k, 60k, 30k and 4k alike. Framerate also improved, 31fps to 60fps on
+this machine, because smaller sprites are cheaper to rasterise. The earlier coverage table in this
+document was measured at 19x overlap and does not carry over.
 
 ### M7. Adaptive quality rebuilds geometry, and can oscillate
 
@@ -188,11 +228,12 @@ and a teaching tool.
 
 ## Minor
 
-### m1. 143 lines of dead code in `js/models/shapes.js`
+### m1. Dead code in `js/models/shapes.js`
 
-Thirteen exported samplers; **three are used** — `spherePoint`, `boxBeamPoint`, `combine`. The
-other eleven (`shellPoint`, `torusPoint`, `tubePoint`, `discPoint`, `boxPoint`, `boxShellPoint`,
-`cylinderPoint`, `lathePoint`, `curvePoint`, `mirrorX`) are unreferenced.
+Thirteen exported samplers; **four are used** — `spherePoint`, `boxBeamPoint`, `combine`, and
+`mirrorX` (used since the brain model was added). The other nine (`shellPoint`, `torusPoint`,
+`tubePoint`, `discPoint`, `boxPoint`, `boxShellPoint`, `cylinderPoint`, `lathePoint`, `curvePoint`)
+are unreferenced.
 
 They were written speculatively as a palette for future models, which is exactly the kind of
 "scaffolding for later" that rots. Either they get used by the next five models or they go.
@@ -228,11 +269,35 @@ installed are the common case.
 must agree or the explode framing drifts from the actual projection. They agree today because
 nobody has changed one.
 
-### m6. Brightness is coupled to particle count
+### m6. ~~Brightness was coupled to particle count~~ — resolved 2026-10-06
 
-`exposure = 700 / budget`. Correct, and the reason brightness stays stable across budgets — but
-it means the constant is only right for the current sprite falloff. Change the falloff and the
-tuning is wrong everywhere at once.
+`exposure = 700 / budget` existed to hold brightness steady across budgets. Once sprite overlap became
+budget-invariant that was no longer the right relationship and was double-counting the budget;
+exposure is now a constant.
+
+### M9. Every model rendered at 63% of its intended size on a landscape display — fixed 2026-10-06
+
+`frameDistance` computed the horizontal fit as `vertical * max(1, aspect)` and took the max of
+the two. The frustum's half-width at distance `d` is `d*tan(halfFov)*aspect`, so fitting an
+extent of radius R horizontally needs `R / (tan(halfFov) * aspect)` — the aspect ratio is a
+*divisor*, not a multiplier. On a 16:10 display the old code therefore sat 1.6x further back
+than the projection asked for, and every model rendered at 63% of its intended size. It got
+worse on wider screens, so the bigger the window the smaller the model, which is the opposite of
+what a full-bleed canvas should do.
+
+A second term made it asymmetric: `modelRadius * 1.2` was a floor inside the same `max()`, so
+larger models were pushed further away still. The eiffel tower (radius 3.27) sat well past its
+own extent while a small model was unaffected.
+
+Measured on the brain at 1400x900:
+
+| | camera distance | model height | share of window |
+|---|---|---|---|
+| before | 9.73 | 349 px | 38.7% |
+| after | 5.99 | 566 px | 62.9% |
+
+The model now fills a consistent share of the frame at any viewport, and `FRAME_FILL` (0.92)
+provides the margin the `1.2` floor was reaching for.
 
 ### m7. Reduced-motion support is partial
 
@@ -275,7 +340,7 @@ simplification. A test that asserts "the aorta exists" is satisfied by a tube.
 | Severity | Count | Blocking release? |
 |---|---|---|
 | Critical | 2 | Yes |
-| Major | 8 (2 since fixed) | Yes |
+| Major | 10 (4 since fixed) | Yes |
 | Minor | 7 | No |
 
 The two critical problems share a root cause: **everything has been verified against synthetic

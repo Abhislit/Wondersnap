@@ -11,6 +11,7 @@ function it(name, fn) {
 function ok(v, m = 'expected truthy') { if (!v) throw new Error(m); }
 function eq(a, b, m = '') { if (a !== b) throw new Error(`${m} expected ${b}, got ${a}`); }
 function gte(a, min, m = '') { if (!(a >= min)) throw new Error(`${m} expected >= ${min}, got ${a}`); }
+function close(a, b, tol, m = '') { if (Math.abs(a - b) > tol) throw new Error(`${m} ${a} vs ${b}`); }
 
 const BUDGET = 20000;
 
@@ -182,6 +183,28 @@ it('models are centred and bounded for camera framing', () => {
     gte(boundsRadius(r.parts), 0.1, `${m.id}: radius`);
     gte(r.modelRadius, 0.1, `${m.id}: modelRadius`);
     ok(c.every(Number.isFinite), `${m.id}: centre`);
+  }
+});
+
+/**
+ * The camera aims at boundsCenter, so it has to be the model's actual middle. Averaging
+ * the part centres is not that: parts differ in size, so the mean drifts toward whichever
+ * side has more of them. On the heart it landed 0.51 units off, which pushed the model
+ * visibly off-centre in frame, and the jet engine 0.59.
+ */
+it('boundsCenter is the midpoint of the extent, not the mean of part centres', () => {
+  for (const m of MODELS) {
+    const r = build(m);
+    const c = boundsCenter(r.parts);
+    for (let i = 0; i < 3; i++) {
+      let lo = Infinity;
+      let hi = -Infinity;
+      for (const p of r.parts) {
+        lo = Math.min(lo, p.center[i] - p.radius);
+        hi = Math.max(hi, p.center[i] + p.radius);
+      }
+      close(c[i], (lo + hi) / 2, 1e-6, `${m.id}: axis ${i}`);
+    }
   }
 });
 

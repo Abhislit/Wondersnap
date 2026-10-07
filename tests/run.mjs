@@ -7,6 +7,7 @@ const suites = [
   'gestures.test.mjs',
   'tracker.test.mjs',
   'models.test.mjs',
+  'brain.test.mjs',
   'camera.test.mjs',
   'math.test.mjs',
   'progress.test.mjs',

@@ -1,9 +1,10 @@
 import heart from './heart.js';
+import brain from './brain.js';
 import dna from './dna.js';
 import eiffel from './eiffel.js';
 import jetEngine from './jetEngine.js';
 
-export const MODELS = [heart, dna, eiffel, jetEngine];
+export const MODELS = [heart, brain, dna, eiffel, jetEngine];
 
 export const CATEGORIES = [
   { id: 'all', label: 'All', models: MODELS },

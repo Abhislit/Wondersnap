@@ -70,13 +70,21 @@ const PORT = await new Promise((resolve, reject) => {
   startListening();
 });
 
+/**
+ * ANGLE backend for the suite. Defaults to SwiftShader because CI has no GPU, but
+ * WONDERGL=vulkan runs it on real hardware, where memory is driver-managed and the
+ * renderer is far less likely to be killed mid-suite.
+ */
+const GL_BACKEND = process.env.WONDERGL || 'swiftshader';
+
 const browser = await puppeteer.launch({
   executablePath: chromePath,
   headless: 'new',
   protocolTimeout: 240000,
   args: [
-    '--no-sandbox', '--disable-dev-shm-usage', '--enable-unsafe-swiftshader',
-    '--use-gl=angle', '--use-angle=swiftshader', '--disable-gpu-watchdog',
+    '--no-sandbox', '--disable-dev-shm-usage',
+    ...(GL_BACKEND === 'swiftshader' ? ['--enable-unsafe-swiftshader'] : []),
+    '--use-gl=angle', `--use-angle=${GL_BACKEND}`, '--disable-gpu-watchdog',
     '--use-fake-ui-for-media-stream', '--use-fake-device-for-media-stream',
   ],
 });
@@ -292,10 +300,19 @@ async function runCameraFreeSuite() {
     await page.mouse.move(370, 270, { steps: 4 });
     await page.mouse.up();
     await page.mouse.wheel({ deltaY: -160 });
+
+    // Read the orbit and zoom before switching models. Switching reframes the camera to
+    // fit the new model, which overwrites both -- asserting after the switch only passed
+    // when the renderer was too slow to have settled yet.
+    const orbited = await page.evaluate(() => ({
+      yaw: window.__stage.camera.yaw,
+      distance: window.__stage.camera.targetDistance,
+    }));
+
     await page.click('#btnExplode');
     const exploded = await page.evaluate(() => window.__stage.explodeTarget);
     await page.click('#btnCutaway');
-    await page.click('#modelTabs button:nth-child(2)');
+    await page.click('#modelTabs button[data-model="dna"]');
 
     const after = await page.evaluate(() => ({
       yaw: window.__stage.camera.yaw,
@@ -305,7 +322,7 @@ async function runCameraFreeSuite() {
       model: window.__stage.model.id,
       gateHidden: document.getElementById('gate').classList.contains('hidden'),
     }));
-    return { cameraError, before, after, exploded };
+    return { cameraError, before, orbited, after, exploded };
   } finally {
     await close(page);
   }
@@ -333,58 +350,124 @@ try {
   check('WebGL2 context is live', gl.ok, JSON.stringify(gl));
   check('no GL error after boot', gl.error === 0, `glError=${gl.error}`);
 
-  const luma = await page.evaluate(() => new Promise((resolve) => {
-    window.__capture((stage, glCtx, canvas) => {
-      const span = 140;
-      const buf = new Uint8Array(4 * span * span);
-      glCtx.readPixels(
-        (canvas.width >> 1) - (span >> 1), (canvas.height >> 1) - (span >> 1),
-        span, span, glCtx.RGBA, glCtx.UNSIGNED_BYTE, buf,
-      );
-      let sum = 0;
-      let max = 0;
-      for (let i = 0; i < buf.length; i += 4) {
-        const l = buf[i] + buf[i + 1] + buf[i + 2];
-        sum += l;
-        if (l > max) max = l;
-      }
-      resolve({ mean: sum / (span * span) / 3, max, error: glCtx.getError() });
-    });
+  /**
+ * Proves the drawing buffer is neither blank nor blown out. This runs before the model
+ * loop below, and at this point the particles are still a seed sphere at the centre, so
+ * it measures whatever fills the buffer -- the canvas gradient -- rather than the model
+ * itself. That is enough for the failure it exists to catch (a context that renders
+ * nothing, or one that renders white). That the particles themselves reach the
+ * framebuffer is asserted per model further down, where `assemble` is a real number.
+ */
+const luma = await page.evaluate(() => new Promise((resolve) => {
+    // boot() starts the camera, so the canvas is deliberately transparent by default.
+    // Turn the backdrop off and let a frame render before sampling, otherwise this reads
+    // the cleared buffer and finds nothing -- which is correct behaviour, not a failure.
+    window.__stage.cameraBack = false;
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      window.__capture((stage, glCtx, canvas) => {
+        const span = 140;
+        const buf = new Uint8Array(4 * span * span);
+        glCtx.readPixels(
+          (canvas.width >> 1) - (span >> 1), (canvas.height >> 1) - (span >> 1),
+          span, span, glCtx.RGBA, glCtx.UNSIGNED_BYTE, buf,
+        );
+        let sum = 0;
+        let max = 0;
+        for (let i = 0; i < buf.length; i += 4) {
+          const l = buf[i] + buf[i + 1] + buf[i + 2];
+          sum += l;
+          if (l > max) max = l;
+        }
+        resolve({ mean: sum / (span * span) / 3, max, error: glCtx.getError() });
+      });
+    }));
   }));
-  check('particles reach the framebuffer', luma.mean > 2, `meanLuma=${luma.mean.toFixed(1)}`);
+  check('drawing buffer is not blank', luma.mean > 2, `meanLuma=${luma.mean.toFixed(1)}`);
   check('image is not blown out', luma.mean < 200 && luma.max < 765,
     `mean=${luma.mean.toFixed(1)} max=${luma.max}`);
 
-  const models = ['heart', 'dna', 'eiffel', 'jet-engine'];
-  await close(page);
-  for (const id of models) {
-    page = await boot();
-    const m = await page.evaluate(async (mid) => {
-      const s = window.__stage;
-      s.setModel(mid);
-      s.form();
-      const goal = s.time + 3;
-      await new Promise((r) => { const t = () => (s.time >= goal ? r() : requestAnimationFrame(t)); t(); });
-      return {
-        id: s.model.id,
-        parts: s.parts.length,
-        particles: s.parts.reduce((a, p) => a + p.count, 0),
-        assemble: s.assemble,
-        error: s.gl.getError(),
-      };
-    }, id);
-    check(`${id} assembles`, m.assemble > 0.9, `parts=${m.parts} n=${m.particles} assemble=${m.assemble.toFixed(2)}`);
-    check(`${id} has no GL error`, m.error === 0, `glError=${m.error}`);
-    await close(page);
-  }
+  // draw() must set its own viewport. simulate() leaves gl.viewport at the simulation
+  // texture size and renderBackground() used to reset it, so skipping the background pass
+  // left the whole model drawn into one corner at texture scale. Nothing above can catch
+  // that -- luma is just as non-zero for a model squeezed into 1/4 of the canvas -- so the
+  // drawn pixels are measured directly.
+  const drawn = await page.evaluate(() => new Promise((resolve) => {
+    // Wait for the model to finish assembling and the camera to settle first. This runs
+    // right after boot, where the particles are still flying in from a seed sphere and the
+    // camera is still easing out of its intro zoom -- measuring then measures the animation,
+    // not the framing.
+    const s = window.__stage;
+    // form() is what actually assembles the model; nothing else does it at boot.
+    s.form();
+    const deadline = performance.now() + 20000;
+    const settle = () => new Promise((res) => {
+      if (s.assemble > 0.98 && Math.abs(s.camera.distance - s.camera.targetDistance) < 0.05) {
+        res();
+        return;
+      }
+      if (performance.now() > deadline) { res(); return; }
+      requestAnimationFrame(settle);
+    });
+    settle().then(() => {
+      window.__capture((stage, glCtx, canvas) => {
+      const W = canvas.width;
+      const H = canvas.height;
+      const buf = new Uint8Array(4 * W * H);
+      glCtx.readPixels(0, 0, W, H, glCtx.RGBA, gl.UNSIGNED_BYTE, buf);
+      let minx = W; let maxx = -1; let miny = H; let maxy = -1;
+      let cornerAlpha = 0;
+      // Corners are sampled before the scan so a fully-covered frame is caught too.
+      cornerAlpha = Math.max(
+        buf[3], buf[(W - 1) * 4 + 3], buf[(H - 1) * W * 4 + 3], buf[(H * W - 1) * 4 + 3],
+      );
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          if (buf[(y * W + x) * 4 + 3] > 8) {
+            if (x < minx) minx = x;
+            if (x > maxx) maxx = x;
+            if (y < miny) miny = y;
+            if (y > maxy) maxy = y;
+          }
+        }
+      }
+      resolve({
+        W, H, cornerAlpha,
+        bbox: maxx < 0 ? null : [minx, miny, maxx - minx, maxy - miny],
+        centreX: maxx < 0 ? 0 : (minx + maxx) / 2,
+        centreY: maxx < 0 ? 0 : (miny + maxy) / 2,
+        assemble: stage.assemble,
+      });
+      });
+    });
+  }));
+  check('particles are drawn across the frame, not into a corner', drawn.bbox !== null,
+    `no pixels above alpha 8 at ${drawn.W}x${drawn.H}`);
+  const fillH = drawn.bbox ? drawn.bbox[3] / drawn.H : 0;
+  check('the model fills most of the frame height', fillH > 0.7,
+    `draws ${(fillH * 100).toFixed(0)}% of height at ${drawn.bbox?.[2]}x${drawn.bbox?.[3]}`);
+  check('the model is centred horizontally',
+    Math.abs(drawn.centreX - drawn.W / 2) < drawn.W * 0.08,
+    `centre x=${drawn.centreX.toFixed(0)} of ${drawn.W}`);
+  check('the frame corners are transparent so the desktop shows through',
+    drawn.cornerAlpha === 0, `corner alpha=${drawn.cornerAlpha}`);
 
+  // Derived from the registry, so a new model is covered the day it is added rather than
+  // the day someone remembers to add it here.
+  const models = await page.evaluate(async () => (await import('/js/models/index.js')).MODELS.map((m) => m.id));
+  await close(page);
+
+  /**
+   * One page per model does both jobs: confirm it assembles with no GL error, then explode
+   * it and check every part is reachable. These used to be two loops booting a page each,
+   * which doubled the page count -- and page count is what leaks under software rendering
+   * until the renderer is killed.
+   */
   const unreachable = [];
   let tested = 0;
   let correct = 0;
-
-  for (const id of ['heart', 'dna', 'eiffel', 'jet-engine']) {
+  for (const id of models) {
     page = await boot();
-    const r = await page.evaluate(async (mid) => {
+    const m = await page.evaluate(async (mid) => {
       const s = window.__stage;
       const wait = (sec) => new Promise((res) => {
         const goal = s.time + sec;
@@ -393,6 +476,15 @@ try {
       });
       s.setModel(mid);
       s.form();
+      await wait(3);
+      const assembled = {
+        id: s.model.id,
+        parts: s.parts.length,
+        particles: s.parts.reduce((a, p) => a + p.count, 0),
+        assemble: s.assemble,
+        error: s.gl.getError(),
+      };
+
       s.toggleExplode();
       await wait(2.5);
       const w = s.canvas.clientWidth;
@@ -400,8 +492,8 @@ try {
       const offsets = s.explodeOffsets();
       const data = s.pickPoints.data;
       const reachable = new Set();
-      let tested = 0;
-      let correct = 0;
+      let tried = 0;
+      let hits = 0;
       for (const yaw of [0, 2.1, 4.2]) {
         s.camera.yaw = yaw;
         const vp = s.camera.viewProj(w / h);
@@ -420,17 +512,24 @@ try {
           const cy = (vp[1] * x + vp[5] * y + vp[9] * z + vp[13]) / cw;
           if (Math.abs(cx) > 0.93 || Math.abs(cy) > 0.93) continue;
           const got = s.pick((cx * 0.5 + 0.5) * w, (1 - (cy * 0.5 + 0.5)) * h);
-          tested++;
+          tried++;
           if (got) reachable.add(got.group);
-          if (got && got.group === g) correct++;
+          if (got && got.group === g) hits++;
         }
       }
-      const unreachable = s.parts.filter((p) => !reachable.has(p.group)).map((p) => `${mid}:${p.name}`);
-      return { unreachable, accuracy: tested ? correct / tested : 0, tested };
+      return {
+        assembled,
+        unreachable: s.parts.filter((p) => !reachable.has(p.group)).map((p) => `${mid}:${p.name}`),
+        accuracy: tried ? hits / tried : 0,
+        tested: tried,
+      };
     }, id);
-    unreachable.push(...r.unreachable);
-    tested += r.tested;
-    correct += Math.round(r.accuracy * r.tested);
+    check(`${id} assembles`, m.assembled.assemble > 0.9,
+      `parts=${m.assembled.parts} n=${m.assembled.particles} assemble=${m.assembled.assemble.toFixed(2)}`);
+    check(`${id} has no GL error`, m.assembled.error === 0, `glError=${m.assembled.error}`);
+    unreachable.push(...m.unreachable);
+    tested += m.tested;
+    correct += Math.round(m.accuracy * m.tested);
     await close(page);
   }
 
@@ -474,9 +573,10 @@ try {
       && cameraFree.after.gateHidden,
     cameraFree.cameraError);
   check('mouse orbit and wheel zoom work without a camera',
-    Math.abs(cameraFree.after.yaw - cameraFree.before.yaw) > 0.1
-      && cameraFree.after.distance < cameraFree.before.distance,
-    `yawDelta=${(cameraFree.after.yaw - cameraFree.before.yaw).toFixed(2)}`);
+    Math.abs(cameraFree.orbited.yaw - cameraFree.before.yaw) > 0.1
+      && cameraFree.orbited.distance < cameraFree.before.distance,
+    `yawDelta=${(cameraFree.orbited.yaw - cameraFree.before.yaw).toFixed(2)}`
+      + ` distance ${cameraFree.before.distance.toFixed(2)} -> ${cameraFree.orbited.distance.toFixed(2)}`);
   check('model, explode, and cutaway controls work without a camera',
     cameraFree.after.model === 'dna' && cameraFree.exploded === 1 && cameraFree.after.cutaway,
     JSON.stringify({ ...cameraFree.after, exploded: cameraFree.exploded }));

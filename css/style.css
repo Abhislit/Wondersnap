@@ -28,17 +28,56 @@ html, body {
   display: block;
   touch-action: none;
   cursor: grab;
+  /* Above #cam (0) and #camscrim (1); the HUD is 5 and the start gate 20. */
+  z-index: 2;
 }
 #gl:active { cursor: grabbing; }
 
+/*
+ * The video is the MediaPipe source and, once the camera is running, the backdrop the
+ * particles composite over. It was previously a 2x2px 0.001-opacity placeholder, which
+ * keeps a live decode out of the compositor's way but shows nothing.
+ *
+ * Hidden by default via the class rather than by sizing, so enabling it costs no layout
+ * change: same full-bleed box either way.
+ */
 #cam {
   position: fixed;
-  width: 2px;
-  height: 2px;
-  opacity: 0.001;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
   pointer-events: none;
   top: 0;
   left: 0;
+  opacity: 0;
+  transform: scaleX(-1);
+  transition: opacity 0.3s ease;
+  z-index: 0;
+}
+
+/* Mirrored, because the tracking overlay is mirrored and an unmirrored feed would put
+ * your hand on the opposite side from the skeleton drawn on it. */
+#cam.backing {
+  opacity: 0.55;
+}
+
+/*
+ * Additive particles over a bright room read worse than over black, so the feed is dimmed
+ * rather than the exposure raised. This sits above the video and below the canvas.
+ */
+#camscrim {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background: #05060d;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  z-index: 1;
+}
+
+#camscrim.on {
+  opacity: 0.45;
 }
 
 #hud {

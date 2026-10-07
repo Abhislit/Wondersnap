@@ -202,6 +202,12 @@ export class ParticleSystem {
   draw(state) {
     const gl = this.gl;
     const u = this.drawProgram.uniforms;
+    // Own the viewport here. simulate() leaves it set to the simulation texture size, and
+    // the only thing that used to reset it was renderBackground() -- so whenever the
+    // background pass was skipped, draw() ran at sim-texture scale and the whole model
+    // landed squeezed into one corner of the canvas. Setting it from the drawing buffer
+    // makes the draw pass independent of whatever ran before it.
+    gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
     gl.useProgram(this.drawProgram.program);
     gl.bindVertexArray(this.emptyVao);
 

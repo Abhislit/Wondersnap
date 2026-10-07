@@ -17,6 +17,9 @@ const gateStart = document.getElementById('gateStart');
 const gateExplore = document.getElementById('gateExplore');
 const gateError = document.getElementById('gateError');
 const btnStart = document.getElementById('btnStart');
+const btnCamBack = document.getElementById('btnCamBack');
+const camEl = document.getElementById('cam');
+const camScrim = document.getElementById('camscrim');
 const modelTabs = document.getElementById('modelTabs');
 const statusEl = document.getElementById('status');
 const fpsEl = document.getElementById('fps');
@@ -81,6 +84,7 @@ function buildTabs() {
     const button = document.createElement('button');
     button.textContent = model.name;
     button.dataset.index = String(i);
+    button.dataset.model = model.id;
     button.addEventListener('click', () => selectModel(i, true));
     modelTabs.appendChild(button);
   });
@@ -537,6 +541,7 @@ async function startCamera() {
   }
   gateError.hidden = true;
   setStatus(`Tracking live · ${rendererInfo.renderer}`);
+  setCameraBack(true);
   gate.classList.add('hidden');
   setHint('Snap your fingers to materialise the particles.');
 }
@@ -580,6 +585,26 @@ function describeStartupFailure(err) {
 
 gateStart.addEventListener('click', startExperience);
 gateExplore.addEventListener('click', () => startExperience(false));
+/**
+ * Composite the webcam behind the particles. Turning this off brings back the canvas's own
+ * gradient, which is also what happens whenever there is no camera, so the no-camera path
+ * is unchanged rather than special-cased here.
+ */
+function setCameraBack(on) {
+  const live = Boolean(tracker?.stream);
+  const want = on && live;
+  if (stage) stage.cameraBack = want;
+  camEl.classList.toggle('backing', want);
+  camScrim.classList.toggle('on', want);
+  btnCamBack.hidden = !live;
+  btnCamBack.textContent = want ? 'Camera back on' : 'Camera back off';
+  btnCamBack.classList.toggle('on', want);
+}
+
+btnCamBack.addEventListener('click', () => {
+  setCameraBack(!(stage && stage.cameraBack));
+});
+
 btnStart.addEventListener('click', startExperience);
 panelClose.addEventListener('click', closePanel);
 
